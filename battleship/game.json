@@ -2,7 +2,9 @@
   "sdk": 1,
   "id": "battleship",
   "name": "BATTLESHIP",
+  "title": "Battleship",
   "blurb": "Commit your fleet, then both fire at once. Liars are caught at the reveal.",
+  "description": "Nobody holds your fleet — not even the host. You commit to it, answer your own hits, and both players fire at once. Lie about a hit and the reveal catches you.",
   "entry": "index.html",
   "shape": "teams",
   "seats": {

@@ -2,7 +2,9 @@
   "sdk": 1,
   "id": "tug-of-war",
   "name": "TUG OF WAR",
+  "title": "Tug of War",
   "blurb": "Tap to pull. Two teams, any sizes — drag the knot past your line.",
+  "description": "Tap to pull. Two teams, any sizes — drag the knot past your line before they drag it past theirs.",
   "entry": "index.html",
   "shape": "teams",
   "seats": {
