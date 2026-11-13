@@ -1,0 +1,23 @@
+{
+  "sdk": 1,
+  "id": "tug-of-war",
+  "name": "TUG OF WAR",
+  "blurb": "Tap to pull. Two teams, any sizes — drag the knot past your line.",
+  "entry": "index.html",
+  "shape": "teams",
+  "seats": {
+    "min": 2,
+    "max": 8
+  },
+  "bots": true,
+  "kind": "teams",
+  "tags": [
+    "alone",
+    "party",
+    "quick"
+  ],
+  "preview": "preview.gif",
+  "license": "MIT",
+  "author": "lokeshmohanty",
+  "repo": "https://github.com/lokeshmohanty/arcade-games"
+}

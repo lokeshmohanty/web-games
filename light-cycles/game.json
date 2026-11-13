@@ -1,0 +1,23 @@
+{
+  "sdk": 1,
+  "id": "light-cycles",
+  "name": "LIGHT CYCLES",
+  "blurb": "Ride, leave a wall, do not touch one. Last one moving wins.",
+  "entry": "index.html",
+  "shape": "free",
+  "seats": {
+    "min": 1,
+    "max": 8
+  },
+  "bots": true,
+  "kind": "ffa",
+  "tags": [
+    "alone",
+    "party",
+    "quick"
+  ],
+  "preview": "preview.gif",
+  "license": "MIT",
+  "author": "lokeshmohanty",
+  "repo": "https://github.com/lokeshmohanty/arcade-games"
+}

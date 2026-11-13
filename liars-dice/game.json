@@ -1,0 +1,22 @@
+{
+  "sdk": 1,
+  "id": "liars-dice",
+  "name": "LIAR'S DICE",
+  "blurb": "Bid on dice you cannot see. Ones are wild. Call a bluff and someone loses one.",
+  "entry": "index.html",
+  "shape": "free",
+  "seats": {
+    "min": 2,
+    "max": 6
+  },
+  "bots": true,
+  "kind": "ffa",
+  "tags": [
+    "alone",
+    "party"
+  ],
+  "preview": "preview.gif",
+  "license": "MIT",
+  "author": "lokeshmohanty",
+  "repo": "https://github.com/lokeshmohanty/arcade-games"
+}

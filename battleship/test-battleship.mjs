@@ -12,12 +12,20 @@
  * never happened — because a commitment nobody can fail is not a commitment.
  */
 import { readFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+
+// The platform's runtime (lib/net.js, lib/games.js, ...) these rules load
+// beside the game: a checkout of lokeshmohanty/games, next to this repo by
+// default.
+const PLATFORM = process.env.NEON_PLATFORM
+	? pathToFileURL(process.env.NEON_PLATFORM.replace(/\/?$/, "/"))
+	: new URL("../../games/", import.meta.url);
 
 globalThis.window = globalThis;
 globalThis.location = { href: "file:///x", hash: "", pathname: "/x", search: "" };
 globalThis.history = { replaceState() {} };
-for (const f of ["../lib/net.js", "../lib/games.js", "../lib/secrets.js", "../games/battleship.js"]) {
-	new Function(readFileSync(new URL(f, import.meta.url), "utf8"))();
+for (const f of ["lib/net.js", "lib/games.js", "lib/secrets.js", "./battleship.js"]) {
+	new Function(readFileSync(new URL(f, f.startsWith("./") ? import.meta.url : PLATFORM), "utf8"))();
 }
 const R = globalThis.NeonArcade.battleshipRules;
 const { SIZE, FLEET, FLEET_CELLS, key, cellsOf, validateFleet, randomFleet, shipAt, answerShot, fleetSunk, auditAnswers, botTarget } = R;

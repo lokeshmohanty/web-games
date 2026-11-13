@@ -1,0 +1,21 @@
+{
+  "sdk": 1,
+  "id": "draw-guess",
+  "name": "DRAW & GUESS",
+  "blurb": "Take turns drawing while everyone races to guess the word.",
+  "entry": "index.html",
+  "shape": "free",
+  "seats": {
+    "min": 2,
+    "max": 8
+  },
+  "bots": false,
+  "kind": "ffa",
+  "tags": [
+    "party"
+  ],
+  "preview": "preview.gif",
+  "license": "MIT",
+  "author": "lokeshmohanty",
+  "repo": "https://github.com/lokeshmohanty/arcade-games"
+}

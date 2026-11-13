@@ -1,0 +1,23 @@
+{
+  "sdk": 1,
+  "id": "battleship",
+  "name": "BATTLESHIP",
+  "blurb": "Commit your fleet, then both fire at once. Liars are caught at the reveal.",
+  "entry": "index.html",
+  "shape": "teams",
+  "seats": {
+    "min": 2,
+    "max": 2
+  },
+  "bots": true,
+  "kind": "duel",
+  "tags": [
+    "alone",
+    "duel",
+    "strategy"
+  ],
+  "preview": "preview.gif",
+  "license": "MIT",
+  "author": "lokeshmohanty",
+  "repo": "https://github.com/lokeshmohanty/arcade-games"
+}
