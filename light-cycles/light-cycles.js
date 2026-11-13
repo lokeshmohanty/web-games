@@ -1,6 +1,6 @@
-// games/light-cycles.js — Light Cycles, as a mountable module.
+// light-cycles/light-cycles.js — Light Cycles, as a mountable module.
 //
-// The casual counterweight to Onitama: one bit of input, no rules to read, and
+// The casual counterweight to the board games: one bit of input, no rules to read, and
 // a round is over in under a minute. You ride, you leave a wall behind you, you
 // do not touch a wall. Last one moving wins.
 //
