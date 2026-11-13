@@ -1,0 +1,25 @@
+{
+  "sdk": 1,
+  "id": "sudoku",
+  "name": "SUDOKU",
+  "title": "Sudoku",
+  "blurb": "Alone against the clock, or a race: same puzzle, first to finish wins.",
+  "description": "Classic Sudoku in four difficulties, with pencil notes and a daily puzzle that is the same for everyone. Play alone for a best time, or race friends and bots on the same grid — first to fill it in correctly wins.",
+  "entry": "index.html",
+  "shape": "free",
+  "seats": {
+    "min": 1,
+    "max": 8
+  },
+  "bots": true,
+  "kind": "ffa",
+  "tags": [
+    "alone",
+    "puzzle",
+    "daily"
+  ],
+  "preview": "preview.gif",
+  "license": "MIT",
+  "author": "lokeshmohanty",
+  "repo": "https://github.com/lokeshmohanty/arcade-games"
+}

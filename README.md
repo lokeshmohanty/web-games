@@ -1,6 +1,6 @@
 # arcade-games
 
-Five games for [the arcade](https://www.lokeshmohanty.in/games/) — and the
+Six games for [the arcade](https://www.lokeshmohanty.in/games/) — and the
 worked example of a games repository the arcade lists. Nothing here is
 special: it is registered exactly as anyone's repository would be
 (`registry/lokeshmohanty/arcade-games.json` in
@@ -13,6 +13,7 @@ special: it is registered exactly as anyone's repository would be
 | Liar's Dice | [`liars-dice/`](liars-dice) | deal private dice, reveal on a challenge |
 | Light Cycles | [`light-cycles/`](light-cycles) | a real-time game at a fixed tick, with bots steering |
 | Tug of War | [`tug-of-war/`](tug-of-war) | teams of any size, a host-simulated physics loop, pausing when the host leaves the app |
+| Sudoku | [`sudoku/`](sudoku) | play alone with `seats.min: 1`, or race: the host deals one puzzle, phones report only progress; a seeded daily puzzle |
 
 Each folder is one game:
 
