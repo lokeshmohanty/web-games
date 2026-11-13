@@ -1,6 +1,6 @@
 # arcade-games
 
-Six games for [the arcade](https://www.lokeshmohanty.in/games/) — and the
+Five games for [the arcade](https://www.lokeshmohanty.in/games/) — and the
 worked example of a games repository the arcade lists. Nothing here is
 special: it is registered exactly as anyone's repository would be
 (`registry/lokeshmohanty/arcade-games.json` in
@@ -12,7 +12,6 @@ special: it is registered exactly as anyone's repository would be
 | Draw & Guess | [`draw-guess/`](draw-guess) | run timed rounds on the shared clock (`NeonArcade.makeRounds`); a game with no bots |
 | Liar's Dice | [`liars-dice/`](liars-dice) | deal private dice, reveal on a challenge |
 | Light Cycles | [`light-cycles/`](light-cycles) | a real-time game at a fixed tick, with bots steering |
-| Onitama | [`onitama/`](onitama) | a turn-based duel with a search bot |
 | Tug of War | [`tug-of-war/`](tug-of-war) | teams of any size, a host-simulated physics loop, pausing when the host leaves the app |
 
 Each folder is one game:
@@ -48,7 +47,7 @@ for t in */test-*.mjs; do node "$t" || exit 1; done
 and the arcade's own check, with a browser, from that checkout:
 
 ```sh
-just validate-game ../arcade-games/onitama     # or every folder at once
+just validate-game ../arcade-games/battleship  # or every folder at once
 ```
 
 ## Shipping a change
