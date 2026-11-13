@@ -299,6 +299,8 @@ NeonArcade.registerGame({
 		// ── State ────────────────────────────────────────────────
 		let room = null;
 		let scores = {}; // peerId -> number
+		let matchNo = 1; // games in this run; the host's count, sent with the state
+		let reportedMatch = null;
 		let names = {}; // peerId -> "Player N"
 		let phase = "lobby"; // lobby | choosing | drawing | reveal | gameover
 		let drawerId = null;
@@ -627,6 +629,7 @@ NeonArcade.registerGame({
 				totalRounds,
 				scores,
 				guessedIds: [...guessedIds],
+				match: matchNo,
 			});
 		}
 
@@ -717,8 +720,24 @@ NeonArcade.registerGame({
 			broadcastState();
 		}
 
+		/** Places by points; everyone who played is in it, at 0 if they never scored. */
+		function reportOver() {
+			if (reportedMatch === matchNo) return;
+			reportedMatch = matchNo;
+			const ids = [...new Set([...ctx.players(), ...Object.keys(scores)])];
+			const pts = (id) => scores[id] ?? 0;
+			const levels = [...new Set(ids.map(pts))].sort((a, b) => b - a);
+			ctx.reportResult?.({
+				kind: "ffa",
+				match: matchNo,
+				ranking: levels.map((p) => ids.filter((id) => pts(id) === p)),
+				scores: Object.fromEntries(ids.map((id) => [id, pts(id)])),
+			});
+		}
+
 		function endGame() {
 			broadcastState();
+			reportOver();
 			updateHud();
 			updateWordDisplay();
 			if (room.isHost()) {
@@ -739,6 +758,7 @@ NeonArcade.registerGame({
 		}
 
 		function restart() {
+			matchNo++;
 			scores = {};
 			round = 0;
 			guessedIds = new Set();
@@ -824,6 +844,7 @@ NeonArcade.registerGame({
 			wordHint = data.wordHint;
 			totalRounds = data.totalRounds;
 			scores = data.scores || {};
+			matchNo = data.match ?? matchNo;
 			guessedIds = new Set(data.guessedIds || []);
 			updateHud();
 			updateWordDisplay();

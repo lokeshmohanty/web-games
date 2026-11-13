@@ -251,7 +251,18 @@ NeonArcade.registerGame({
 		let reveals = {}; // id -> { hand, nonce }
 		let verdicts = {}; // id -> null (clean) | string
 		let lastCall = null; // { caller, bid, actual, bidderWasRight, loser }
-		let over = null;
+		let over = null; // { winner, match }
+		let matchNo = 0; // host: games started in this run
+		let reportedMatch = null;
+
+		/** Tell the platform how it ended: the last cup standing, then the rest. */
+		function reportOver() {
+			if (!over || reportedMatch === over.match) return;
+			reportedMatch = over.match;
+			const rest = seats.map((s) => s.id).filter((id) => id !== over.winner);
+			const ranking = over.winner ? [[over.winner], rest].filter((s) => s.length) : [rest];
+			if (ranking[0]?.length) ctx.reportResult?.({ kind: "ffa", match: over.match ?? 1, ranking });
+		}
 		let myHand = [];
 		let myCommit = null;
 		let botHands = {}; // botId -> { hand, commit } — held only by the host
@@ -502,10 +513,11 @@ NeonArcade.registerGame({
 
 			const left = alive();
 			if (left.length <= 1) {
-				over = { winner: left[0]?.id ?? null };
+				over = { winner: left[0]?.id ?? null, match: matchNo };
 				phase = "over";
 				rounds.dispose();
 				pushState();
+				reportOver();
 				return;
 			}
 			pushState();
@@ -536,6 +548,7 @@ NeonArcade.registerGame({
 			if (over) {
 				phase = "over";
 				rounds.dispose();
+				reportOver();
 			}
 			render();
 		};
@@ -781,6 +794,7 @@ NeonArcade.registerGame({
 		function newGame() {
 			if (!ctx.isHost) return;
 			seats = ctx.players().map((id) => ({ id, dice: DICE, out: false }));
+			matchNo++;
 			starter = seats[0]?.id ?? null;
 			bid = null;
 			turn = null;
@@ -853,9 +867,10 @@ NeonArcade.registerGame({
 				}
 				const left = alive();
 				if (left.length <= 1 && !over) {
-					over = { winner: left[0]?.id ?? null };
+					over = { winner: left[0]?.id ?? null, match: matchNo };
 					phase = "over";
 					rounds.dispose();
+					reportOver();
 				}
 				pushState();
 				render();

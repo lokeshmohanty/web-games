@@ -377,7 +377,21 @@ NeonArcade.registerGame({
 		let boards = {}; // playerId -> [{ at, hit, sunk }] — shots fired AT them
 		let reveals = {}; // playerId -> { fleet, nonce }
 		let audits = {}; // playerId -> null (clean) | string (what was wrong)
-		let over = null; // { winner, reason }
+		let over = null; // { winner, reason, match }
+		let matchNo = 0; // host: games started in this run
+		let reportedOver = null;
+
+		/** Tell the platform how it ended (every peer does; it counts once). */
+		function reportOver() {
+			if (!over || reportedOver?.match === over.match) return;
+			reportedOver = over;
+			const [a, b] = seats;
+			const loser = over.winner === a ? b : a;
+			const ranking = over.winner
+				? [[over.winner], [loser]].map((s) => s.filter(Boolean)).filter((s) => s.length)
+				: [[a, b].filter(Boolean)];
+			if (ranking.length) ctx.reportResult?.({ kind: "duel", match: over.match ?? 1, ranking, reason: over.reason ?? undefined });
+		}
 		let placing = FLEET[0].id;
 		let dir = "h";
 		let hover = null;
@@ -526,7 +540,7 @@ NeonArcade.registerGame({
 		/** Host side. Stop the clocks and ask everyone to open their commitment. */
 		function finish(winner, reason) {
 			if (over) return;
-			over = { winner, reason: reason ?? null };
+			over = { winner, reason: reason ?? null, match: matchNo };
 			// Set the phase by hand. Disposing the schedulers is what stops the
 			// clock, and a disposed scheduler fires no `onPhase` — so without this
 			// the game sits in "fire" forever, telling the winner to pick a square
@@ -535,6 +549,7 @@ NeonArcade.registerGame({
 			battle.dispose();
 			setup.dispose();
 			pushState();
+			reportOver();
 			doReveal();
 		}
 
@@ -602,6 +617,7 @@ NeonArcade.registerGame({
 			restoreFleet();
 			over = msg.over ?? null;
 			if (over) {
+				reportOver();
 				phase = "over";
 				battle.dispose();
 				setup.dispose();
@@ -910,6 +926,7 @@ NeonArcade.registerGame({
 		async function newGame() {
 			if (!ctx.isHost) return;
 			seats = [ctx.seats("A")[0] ?? null, ctx.seats("B")[0] ?? null];
+			matchNo++;
 			digests = {};
 			boards = {};
 			reveals = {};

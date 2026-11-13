@@ -308,6 +308,8 @@
 			let grid = new Uint8Array(COLS * ROWS);
 			let racing = false;
 			let winner = undefined; // undefined = no result yet, null = a draw
+			let roundNo = 0; // rounds started in this run (the host's count)
+			let reportedRound = null;
 			let countdown = 0;
 			let tickTimer = null;
 			let countTimer = null;
@@ -474,6 +476,7 @@
 				racing,
 				winner,
 				tickMs,
+				round: roundNo,
 			});
 
 			function applySteer(playerId, dir) {
@@ -497,6 +500,7 @@
 				racing = msg.racing;
 				winner = msg.winner;
 				tickMs = msg.tickMs;
+				roundNo = msg.round ?? roundNo;
 				repaintTrails();
 				render();
 				if (winner !== undefined && !racing) showResult();
@@ -551,6 +555,7 @@
 
 			function newRound() {
 				if (!ctx.isHost) return;
+				roundNo++;
 				seat();
 				grid = new Uint8Array(COLS * ROWS);
 				for (let i = 0; i < riders.length; i++) grid[idx(riders[i].c, riders[i].r)] = i + 1;
@@ -636,7 +641,21 @@
 				showResult();
 			}
 
+			/** Each round is a result: the last rider moving, then everyone else. */
+			function reportRound() {
+				if (winner === undefined || reportedRound === roundNo) return;
+				reportedRound = roundNo;
+				const ids = riders.map((r) => r.id);
+				const rest = ids.filter((id) => id !== winner);
+				ctx.reportResult?.({
+					kind: "ffa",
+					match: roundNo,
+					ranking: winner === null ? [ids] : [[winner], rest].filter((s) => s.length),
+				});
+			}
+
 			function showResult() {
+				reportRound();
 				const text =
 					winner === null
 						? "Everyone crashed"

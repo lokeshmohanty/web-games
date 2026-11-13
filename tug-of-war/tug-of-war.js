@@ -432,8 +432,19 @@ NeonArcade.registerGame({
 
 		const hideOverlay = () => (overlay.hidden = true);
 
+		let reportedMatch = null;
 		function finish() {
 			updateTapButton();
+			// Teams: the winning side's members share first place.
+			if (reportedMatch !== (state.match ?? 1)) {
+				reportedMatch = state.match ?? 1;
+				const lose = state.winner === "A" ? "B" : "A";
+				ctx.reportResult?.({
+					kind: "teams",
+					match: state.match ?? 1,
+					ranking: [ctx.seats(state.winner), ctx.seats(lose)].filter((s) => s.length),
+				});
+			}
 			const mine = myTeam();
 			const msg = !mine
 				? `TEAM ${state.winner} WINS`
@@ -444,7 +455,7 @@ NeonArcade.registerGame({
 		}
 
 		function restart() {
-			state = { pos: 0, winner: null, pulls: { A: 0, B: 0 } };
+			state = { pos: 0, winner: null, pulls: { A: 0, B: 0 }, match: (state.match ?? 1) + 1 };
 			vel = 0;
 			shown = 0;
 			// Otherwise every bot's due time is long past and they all fire at once
