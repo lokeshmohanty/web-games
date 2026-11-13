@@ -92,7 +92,7 @@ NeonArcade.registerGame({
 			}
 			#tug-hud .team.b {
 				color: var(--accent2);
-				text-shadow: 0 0 8px rgba(255, 0, 255, 0.4);
+				text-shadow: 0 0 8px var(--glow);
 			}
 			#tug-hud .roster {
 				color: var(--muted);
@@ -105,7 +105,7 @@ NeonArcade.registerGame({
 				min-height: 0;
 				border: 2px solid var(--border);
 				border-radius: 10px;
-				background: #0d0d16;
+				background: var(--surface-2);
 				touch-action: manipulation;
 			}
 			#tug-tap {
@@ -125,7 +125,7 @@ NeonArcade.registerGame({
 			}
 			#tug-tap:active:not(:disabled) {
 				background: var(--accent);
-				color: #000;
+				color: var(--on-accent);
 			}
 			#tug-tap:disabled {
 				border-color: var(--border);
@@ -288,12 +288,14 @@ NeonArcade.registerGame({
 			const zone = w * 0.14;
 
 			// Goal zones: cross into one and that team has won.
-			c2d.fillStyle = `rgba(0, 255, 255, ${0.08 + flash.A * 0.18})`;
+			// Team A is the theme's accent, Team B its second accent, as in the HUD.
+			const pal = NeonArcade.palette();
+			c2d.fillStyle = pal.alpha("accent", 0.08 + flash.A * 0.18);
 			c2d.fillRect(0, 0, zone, h);
-			c2d.fillStyle = `rgba(255, 0, 255, ${0.08 + flash.B * 0.18})`;
+			c2d.fillStyle = pal.alpha("accent-2", 0.08 + flash.B * 0.18);
 			c2d.fillRect(w - zone, 0, zone, h);
 
-			c2d.strokeStyle = "#333";
+			c2d.strokeStyle = pal.rule;
 			c2d.lineWidth = 2;
 			c2d.beginPath();
 			c2d.moveTo(zone, 0);
@@ -309,14 +311,14 @@ NeonArcade.registerGame({
 			c2d.font = `bold ${Math.min(zone * 1.1, h * 0.4)}px ${getComputedStyle(document.body).fontFamily}`;
 			c2d.textAlign = "center";
 			c2d.textBaseline = "middle";
-			c2d.fillStyle = `rgba(0, 255, 255, ${0.16 + flash.A * 0.3})`;
+			c2d.fillStyle = pal.alpha("accent", 0.16 + flash.A * 0.3);
 			c2d.fillText("A", zone / 2, h / 2);
-			c2d.fillStyle = `rgba(255, 0, 255, ${0.16 + flash.B * 0.3})`;
+			c2d.fillStyle = pal.alpha("accent-2", 0.16 + flash.B * 0.3);
 			c2d.fillText("B", w - zone / 2, h / 2);
 			c2d.restore();
 
 			// Centre line, so the knot's drift is readable at a glance.
-			c2d.strokeStyle = "#2a2a3e";
+			c2d.strokeStyle = pal.rule;
 			c2d.setLineDash([6, 8]);
 			c2d.beginPath();
 			c2d.moveTo(w / 2, 0);
@@ -327,7 +329,7 @@ NeonArcade.registerGame({
 			const knotX = w / 2 + shown * (w / 2 - zone);
 
 			// Rope.
-			c2d.strokeStyle = "#6b5a3a";
+			c2d.strokeStyle = pal.ink3;
 			c2d.lineWidth = 6;
 			c2d.beginPath();
 			c2d.moveTo(0, midY);
@@ -335,8 +337,8 @@ NeonArcade.registerGame({
 			c2d.stroke();
 
 			// Knot, tinted toward whichever side is winning.
-			const lead = shown < 0 ? "#0ff" : shown > 0 ? "#f0f" : "#fff";
-			c2d.shadowBlur = 20;
+			const lead = shown < 0 ? pal.accent : shown > 0 ? pal.accent2 : pal.ink;
+			c2d.shadowBlur = pal.glows ? 20 : 0;
 			c2d.shadowColor = lead;
 			c2d.fillStyle = lead;
 			c2d.beginPath();
@@ -347,10 +349,10 @@ NeonArcade.registerGame({
 			// Pull counts, parked above the rope on each side.
 			c2d.font = "bold 13px " + getComputedStyle(document.body).fontFamily;
 			c2d.textBaseline = "middle";
-			c2d.fillStyle = "#0ff";
+			c2d.fillStyle = pal.accent;
 			c2d.textAlign = "left";
 			c2d.fillText(`${state.pulls.A} pulls`, 10, midY - 34);
-			c2d.fillStyle = "#f0f";
+			c2d.fillStyle = pal.accent2;
 			c2d.textAlign = "right";
 			c2d.fillText(`${state.pulls.B} pulls`, w - 10, midY - 34);
 		}

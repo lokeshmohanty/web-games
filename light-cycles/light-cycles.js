@@ -57,10 +57,9 @@
 		{ c: 8, r: 30, d: "N" },
 	];
 
-	const COLORS = [
-		"#00ffc8", "#ff4d6d", "#4da6ff", "#ffd24d",
-		"#c77dff", "#7dff8a", "#ff9f45", "#ff6bd6",
-	];
+	// Riders wear the theme's player colours (lib/theme.css --p1…--p8),
+	// resolved on this device, so a theme change recolours every trail.
+	const colorOf = (i) => NeonArcade.palette().player(i);
 
 	const idx = (c, r) => r * COLS + c;
 	const inBounds = (c, r) => c >= 0 && c < COLS && r >= 0 && r < ROWS;
@@ -249,7 +248,7 @@
 		}
 	}
 
-	NeonArcade.lightCycleRules = { COLS, ROWS, ORDER, STEP, SPAWNS, COLORS, idx, inBounds, openSpace, openNeighbours, distancesFrom, territory, botDirection, advance };
+	NeonArcade.lightCycleRules = { COLS, ROWS, ORDER, STEP, SPAWNS, idx, inBounds, openSpace, openNeighbours, distancesFrom, territory, botDirection, advance };
 
 	NeonArcade.registerGame({
 		id: "light-cycles",
@@ -266,11 +265,11 @@
 					.lc-arena { position: relative; }
 					.lc-arena canvas { position: absolute; inset: 0; width: 100%; height: 100%;
 						border-radius: 8px; }
-					.lc-arena { border: 2px solid #2a2a4e; border-radius: 10px;
-						box-shadow: 0 0 30px rgba(0, 255, 200, 0.15); touch-action: none; }
+					.lc-arena { border: 2px solid var(--rule); border-radius: 10px;
+						box-shadow: 0 0 30px var(--glow); touch-action: none; }
 					.lc-zones { position: absolute; inset: 0; display: flex; }
 					.lc-zone { flex: 1; display: flex; align-items: flex-end; justify-content: center;
-						padding-bottom: 6px; color: rgba(255,255,255,0.16); font-size: 1.6rem;
+						padding-bottom: 6px; color: color-mix(in oklch, var(--ink) 16%, transparent); font-size: 1.6rem;
 						user-select: none; -webkit-user-select: none; }
 					.lc-scores { display: flex; flex-wrap: wrap; gap: 4px 10px; justify-content: center;
 						font-size: 0.72rem; letter-spacing: 0.06em; }
@@ -359,7 +358,7 @@
 				for (let r = 0; r < ROWS; r++) {
 					for (let c = 0; c < COLS; c++) {
 						const owner = grid[idx(c, r)];
-						if (owner) paintCell(c, r, COLORS[(owner - 1) % COLORS.length]);
+						if (owner) paintCell(c, r, colorOf(owner - 1));
 					}
 				}
 			}
@@ -375,9 +374,10 @@
 				head2d.clearRect(0, 0, cellW * COLS, cellH * ROWS);
 				for (const rider of riders) {
 					if (!rider.alive) continue;
-					head2d.fillStyle = "#fff";
+					const pal = NeonArcade.palette();
+					head2d.fillStyle = pal.ink;
 					head2d.shadowColor = rider.color;
-					head2d.shadowBlur = Math.min(cellW, cellH) * 1.6;
+					head2d.shadowBlur = pal.glows ? Math.min(cellW, cellH) * 1.6 : 0;
 					head2d.fillRect(rider.c * cellW, rider.r * cellH, cellW, cellH);
 					head2d.shadowBlur = 0;
 				}
@@ -494,7 +494,7 @@
 
 			roundAction.onMessage = (msg, { peerId }) => {
 				if (ctx.isHost || peerId !== room.hostId()) return;
-				riders = msg.riders.map((r, i) => ({ ...r, color: COLORS[i % COLORS.length] }));
+				riders = msg.riders.map((r, i) => ({ ...r, color: colorOf(i) }));
 				grid = Uint8Array.from(msg.grid);
 				countdown = msg.countdown;
 				racing = msg.racing;
@@ -547,7 +547,7 @@
 					...SPAWNS[i % SPAWNS.length],
 					dir: SPAWNS[i % SPAWNS.length].d,
 					alive: true,
-					color: COLORS[i % COLORS.length],
+					color: colorOf(i),
 					wins: riders.find((r) => r.id === id)?.wins ?? 0,
 					pending: null,
 				}));
@@ -673,6 +673,13 @@
 
 			const onResize = () => layout();
 			window.addEventListener("resize", onResize);
+			// A new theme: riders take its colours, trails are repainted.
+			const onTheme = () => {
+				riders = riders.map((r, i) => ({ ...r, color: colorOf(i) }));
+				repaintTrails();
+				render();
+			};
+			window.addEventListener("neon:theme", onTheme);
 			window.addEventListener("orientationchange", onResize);
 
 			layout();
@@ -721,6 +728,7 @@
 					clearInterval(countTimer);
 					window.removeEventListener("resize", onResize);
 					window.removeEventListener("orientationchange", onResize);
+					window.removeEventListener("neon:theme", onTheme);
 					window.removeEventListener("keydown", onKey);
 					steerAction.onMessage = null;
 					tickAction.onMessage = null;

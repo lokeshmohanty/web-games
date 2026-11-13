@@ -69,7 +69,7 @@ NeonArcade.registerGame({
         font-size: 1.1rem;
         font-weight: bold;
         color: var(--accent2);
-        text-shadow: 0 0 8px rgba(255, 0, 255, 0.4);
+        text-shadow: 0 0 8px var(--glow);
       }
       #word-display {
         text-align: center;
@@ -91,7 +91,7 @@ NeonArcade.registerGame({
         border: 2px solid var(--accent);
         border-radius: 8px;
         box-shadow: 0 0 20px var(--accent-glow);
-        background: #111;
+        background: var(--surface-2);
         touch-action: none;
         max-width: 100%;
         max-height: 100%;
@@ -113,7 +113,7 @@ NeonArcade.registerGame({
         transition: transform 0.1s;
       }
       .swatch.active {
-        border-color: #fff;
+        border-color: var(--ink);
         transform: scale(1.15);
       }
       .size-btn {
@@ -132,7 +132,7 @@ NeonArcade.registerGame({
       }
       .size-btn .dot {
         border-radius: 50%;
-        background: #fff;
+        background: var(--ink);
       }
       #clear-btn {
         font-size: 0.75rem;
@@ -180,7 +180,7 @@ NeonArcade.registerGame({
         background: var(--bg);
         border: 1px solid var(--border);
         border-radius: 6px;
-        color: #fff;
+        color: var(--ink);
         padding: 8px 12px;
         font-size: 0.9rem;
         font-family: var(--font);
@@ -274,7 +274,14 @@ NeonArcade.registerGame({
 		const DRAW_TIME = 60; // seconds
 		const REVEAL_TIME = 5; // seconds
 		const ROUNDS_PER_PLAYER = 2; // each player draws this many times
-		const PALETTE = ["#0ff", "#f0f", "#4dff4d", "#ffd24d", "#fff", "#ff4d4d"];
+		// Pens are the theme's colours, sent as an index so every peer draws a
+		// stroke in its own theme: "ink" reads on any board, light or dark.
+		const PENS = ["ink", 2, 3, 4, 1, 0]; // a token, or a player colour (0-based)
+		const penColor = (i) => {
+			const pal = NeonArcade.palette();
+			const k = PENS[i] ?? PENS[0];
+			return typeof k === "string" ? pal[k] : pal.player(k);
+		};
 		const SIZES = [3, 6, 12];
 		const SCORE_BASE = 100;
 		const SCORE_TIME_BONUS = 2;
@@ -310,8 +317,8 @@ NeonArcade.registerGame({
 		let totalRounds = 0;
 		let timeLeft = 0;
 		let guessedIds = new Set();
-		let myColor = "#0ff";
-		let drawColor = PALETTE[0];
+		let myColor = null;
+		let drawPen = 1;
 		let drawSize = SIZES[1];
 		let drawing = false;
 		let lastPt = null;
@@ -328,19 +335,9 @@ NeonArcade.registerGame({
 
 		// ── Helpers ──────────────────────────────────────────────
 		function colorFor(id) {
-			const PAL = [
-				"#0ff",
-				"#f0f",
-				"#4dff4d",
-				"#ffd24d",
-				"#ff4d4d",
-				"#a0f",
-				"#ff8c00",
-				"#00ffaa",
-			];
 			let h = 0;
 			for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-			return PAL[h % PAL.length];
+			return NeonArcade.palette().player(h % 8);
 		}
 
 		function assignNames() {
@@ -356,19 +353,30 @@ NeonArcade.registerGame({
 		}
 
 		function clearCanvas() {
-			c2d.fillStyle = "#111";
+			c2d.fillStyle = NeonArcade.palette().surface2;
 			c2d.fillRect(0, 0, CANVAS_W, CANVAS_H);
 			strokeLog.length = 0;
 		}
 
+		/** The picture again, in the current theme (strokes keep their pen). */
+		function repaint() {
+			const all = strokeLog.slice();
+			clearCanvas();
+			for (const seg of all) drawSegment(seg);
+		}
+
+		/** A stroke's colour: its pen, or an old peer's colour string. */
+		const strokeColor = (s) => (Number.isInteger(s.pen) ? penColor(s.pen) : s.color);
+
 		function drawSegment(s) {
 			strokeLog.push(s);
-			c2d.strokeStyle = s.color;
+			const color = strokeColor(s);
+			c2d.strokeStyle = color;
 			c2d.lineWidth = s.size;
 			c2d.lineCap = "round";
 			c2d.lineJoin = "round";
-			c2d.shadowBlur = 6;
-			c2d.shadowColor = s.color;
+			c2d.shadowBlur = NeonArcade.palette().glows ? 6 : 0;
+			c2d.shadowColor = color;
 			c2d.beginPath();
 			c2d.moveTo(s.x0, s.y0);
 			c2d.lineTo(s.x1, s.y1);
@@ -378,7 +386,7 @@ NeonArcade.registerGame({
 
 		function drawDot(x, y, color, size) {
 			c2d.fillStyle = color;
-			c2d.shadowBlur = 6;
+			c2d.shadowBlur = NeonArcade.palette().glows ? 6 : 0;
 			c2d.shadowColor = color;
 			c2d.beginPath();
 			c2d.arc(x, y, size / 2, 0, Math.PI * 2);
@@ -409,13 +417,13 @@ NeonArcade.registerGame({
 				e.preventDefault();
 				drawing = true;
 				lastPt = pointerPos(e);
-				drawDot(lastPt.x, lastPt.y, drawColor, drawSize);
+				drawDot(lastPt.x, lastPt.y, penColor(drawPen), drawSize);
 				const dot = {
 					x0: lastPt.x,
 					y0: lastPt.y,
 					x1: lastPt.x,
 					y1: lastPt.y,
-					color: drawColor,
+					pen: drawPen,
 					size: drawSize,
 				};
 				pendingStrokes.push(dot);
@@ -430,7 +438,7 @@ NeonArcade.registerGame({
 					y0: lastPt.y,
 					x1: pt.x,
 					y1: pt.y,
-					color: drawColor,
+					pen: drawPen,
 					size: drawSize,
 				};
 				drawSegment(seg);
@@ -458,12 +466,12 @@ NeonArcade.registerGame({
 
 		function setupTools() {
 			toolsEl.replaceChildren();
-			PALETTE.forEach((c) => {
+			PENS.forEach((_, i) => {
 				const sw = document.createElement("div");
-				sw.className = "swatch" + (c === drawColor ? " active" : "");
-				sw.style.background = c;
+				sw.className = "swatch" + (i === drawPen ? " active" : "");
+				sw.style.background = penColor(i);
 				sw.onclick = () => {
-					drawColor = c;
+					drawPen = i;
 					toolsEl
 						.querySelectorAll(".swatch")
 						.forEach((s) => s.classList.remove("active"));
@@ -546,7 +554,7 @@ NeonArcade.registerGame({
 			if (phase === "drawing" && drawerId === room.selfId) {
 				wordEl.textContent = currentWord.toUpperCase();
 				wordEl.style.color = "var(--good)";
-				wordEl.style.textShadow = "0 0 10px rgba(77,255,77,0.5)";
+				wordEl.style.textShadow = "0 0 10px var(--glow)";
 			} else if (phase === "drawing") {
 				wordEl.textContent = wordHint;
 				wordEl.style.color = "var(--accent)";
@@ -554,7 +562,7 @@ NeonArcade.registerGame({
 			} else if (phase === "reveal" || phase === "gameover") {
 				wordEl.textContent = currentWord ? currentWord.toUpperCase() : "";
 				wordEl.style.color = "var(--accent2)";
-				wordEl.style.textShadow = "0 0 10px rgba(255,0,255,0.5)";
+				wordEl.style.textShadow = "0 0 10px var(--glow)";
 			} else {
 				wordEl.textContent = "";
 			}
@@ -820,6 +828,13 @@ NeonArcade.registerGame({
 		assignNames();
 		applyPartyNames();
 		setupTools();
+		// A new theme: pens, swatches and the picture so far follow it.
+		const onTheme = () => {
+			myColor = colorFor(room.selfId);
+			setupTools();
+			repaint();
+		};
+		window.addEventListener("neon:theme", onTheme);
 		setupDrawing();
 		clearCanvas();
 
@@ -970,6 +985,7 @@ NeonArcade.registerGame({
 				// into whatever game is mounted next.
 				rounds?.dispose();
 				chatInput.removeEventListener("keydown", onChatKey);
+				window.removeEventListener("neon:theme", onTheme);
 				for (const a of [
 					stateAction,
 					wordAction,

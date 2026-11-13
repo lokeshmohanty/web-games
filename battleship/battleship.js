@@ -280,19 +280,19 @@ NeonArcade.registerGame({
 				   a centred flex column collapses to a single cell — which is exactly
 				   what it did. */
 				.bs-grid { display: grid; grid-template-columns: repeat(${SIZE}, 1fr);
-					gap: 2px; background: #1a1a33; padding: 2px; border-radius: 6px;
-					border: 2px solid #2a2a4e; touch-action: manipulation; }
-				.bs-cell { aspect-ratio: 1; background: #0d0d1f; border: none; padding: 0;
+					gap: 2px; background: var(--rule); padding: 2px; border-radius: 6px;
+					border: 2px solid var(--rule); touch-action: manipulation; }
+				.bs-cell { aspect-ratio: 1; background: var(--surface-2); border: none; padding: 0;
 					border-radius: 2px; color: var(--muted); font-size: 0.7rem; line-height: 1;
 					display: flex; align-items: center; justify-content: center;
 					touch-action: manipulation; cursor: pointer; }
 				.bs-cell:disabled { cursor: default; }
-				.bs-cell.ship { background: #2b4a6b; }
-				.bs-cell.ghost { background: #1d3550; }
-				.bs-cell.bad { background: #4a1f28; }
-				.bs-cell.miss { background: #14142c; color: #4a4a6a; }
-				.bs-cell.hit { background: #c62b2b; }
-				.bs-cell.sunk { background: #6b1414; }
+				.bs-cell.ship { background: color-mix(in oklch, var(--accent) 50%, var(--surface-2)); }
+				.bs-cell.ghost { background: color-mix(in oklch, var(--accent) 25%, var(--surface-2)); }
+				.bs-cell.bad { background: color-mix(in oklch, var(--danger) 35%, var(--surface-2)); }
+				.bs-cell.miss { background: var(--surface); color: var(--ink-3); }
+				.bs-cell.hit { background: var(--danger); }
+				.bs-cell.sunk { background: color-mix(in oklch, var(--danger) 55%, var(--bg)); }
 				.bs-cell.aim { outline: 2px solid var(--accent); outline-offset: -2px; }
 				.bs-label { font-size: 0.62rem; letter-spacing: 0.16em; color: var(--muted);
 					margin-bottom: 2px; }
@@ -309,7 +309,7 @@ NeonArcade.registerGame({
 					   390px screen — but not shorter. Trimming the padding alone took
 					   these to 36px, under the tap minimum. */
 					min-height: 44px; }
-				.bs-notice { font-size: 0.68rem; color: #ff9f45; min-height: 1.2em; text-align: center; }
+				.bs-notice { font-size: 0.68rem; color: var(--warn); min-height: 1.2em; text-align: center; }
 				.bs-verdict { font-size: 0.66rem; color: var(--muted); text-align: center;
 					max-width: 34ch; }
 			`,

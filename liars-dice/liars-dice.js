@@ -190,14 +190,14 @@ NeonArcade.registerGame({
 				.ld-seat { display: flex; align-items: center; gap: 4px; color: var(--muted); }
 				.ld-seat.turn { color: var(--accent); text-shadow: 0 0 8px var(--accent-glow); }
 				.ld-seat.out { opacity: 0.4; text-decoration: line-through; }
-				.ld-cups { letter-spacing: -0.1em; font-size: 0.95rem; color: #7a7aa0; }
+				.ld-cups { letter-spacing: -0.1em; font-size: 0.95rem; color: var(--ink-3); }
 				.ld-bid { font-size: clamp(1.4rem, 7vw, 2.1rem); text-align: center;
 					color: var(--accent); text-shadow: 0 0 14px var(--accent-glow); min-height: 1.4em; }
 				.ld-bid small { display: block; font-size: 0.42em; letter-spacing: 0.14em;
 					color: var(--muted); text-shadow: none; }
 				.ld-mine { display: flex; gap: 4px; justify-content: center; flex-wrap: wrap;
-					font-size: clamp(2rem, 11vw, 3rem); line-height: 1; color: #fff; }
-				.ld-mine .wild { color: #ffd24d; }
+					font-size: clamp(2rem, 11vw, 3rem); line-height: 1; color: var(--ink); }
+				.ld-mine .wild { color: var(--warn); }
 				.ld-faces { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
 				.ld-face { min-width: 46px; min-height: 46px; font-size: 1.5rem; line-height: 1;
 					background: var(--panel); border: 2px solid var(--border); border-radius: 8px;
@@ -207,15 +207,15 @@ NeonArcade.registerGame({
 				.ld-count button { min-width: 46px; min-height: 46px; font-size: 1.2rem;
 					background: var(--panel); border: 2px solid var(--border); border-radius: 8px;
 					color: var(--accent); cursor: pointer; }
-				.ld-count span { font-size: 1.5rem; min-width: 2ch; text-align: center; color: #fff; }
+				.ld-count span { font-size: 1.5rem; min-width: 2ch; text-align: center; color: var(--ink); }
 				.ld-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
 				.ld-actions .neon-btn { padding: 11px 18px; font-size: 14px; min-height: 44px; }
-				.ld-actions .liar { background: #ff4d6d; }
+				.ld-actions .liar { background: var(--danger); color: var(--on-accent); }
 				.ld-reveal { display: flex; flex-direction: column; gap: 3px; align-items: center;
 					font-size: 0.78rem; color: var(--muted); }
 				.ld-reveal .row { display: flex; gap: 6px; align-items: center; }
-				.ld-reveal .dice { font-size: 1.15rem; color: #fff; letter-spacing: -0.05em; }
-				.ld-notice { font-size: 0.68rem; color: #ff9f45; min-height: 1.2em; text-align: center; }
+				.ld-reveal .dice { font-size: 1.15rem; color: var(--ink); letter-spacing: -0.05em; }
+				.ld-notice { font-size: 0.68rem; color: var(--warn); min-height: 1.2em; text-align: center; }
 			`,
 		});
 
