@@ -385,15 +385,16 @@
 
 			/**
 			 * Places at the end of a race: the winner alone first, then everybody
-			 * else by how many cells they had right. Alone, it is played, with the
-			 * time it took.
+			 * else by how many cells they had right (the card derives "YOU WIN" /
+			 * "X WINS" on each phone). Alone, it is played, with the time it took.
 			 */
 			result() {
 				if (s.phase !== "over") return null;
 				const ranking = standings(s.players, s.progress, s.winner);
 				if (s.players.length === 1) {
 					const ms = s.times[s.winner];
-					return { kind: "coop", ranking, ...(ms != null ? { scores: { [s.winner]: Math.round(ms / 1000) } } : {}) };
+					// The end card's heading, as v1's own said it (the derived one is "GAME OVER").
+					return { kind: "coop", ranking, ...(ms != null ? { title: `SOLVED IN ${clock(ms)}`, scores: { [s.winner]: Math.round(ms / 1000) } } : {}) };
 				}
 				return { kind: "ffa", ranking, scores: { ...s.progress } };
 			},

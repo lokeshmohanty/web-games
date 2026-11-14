@@ -172,6 +172,7 @@ console.log("\nthe race, as the platform runs it");
 	check("filling it all in wins", v.phase === "over" && v.winner === "pB" && v.times.pB === 61_000);
 	const r = rules.result();
 	check("the result: the winner first, then by cells right", r?.kind === "ffa" && JSON.stringify(r.ranking) === '[["pB"],["bot_1"],["pA"]]', JSON.stringify(r));
+	check("a race's end card is the platform's (YOU WIN / X WINS on each phone)", r && !("title" in r));
 	check("nobody is on turn once it is over", rules.turn().length === 0);
 	// The heir carries on from the host's copy, a few seconds later.
 	const heir = R.race({ host: () => "pB", now: () => t + 5000, random: () => 0.5 });
@@ -199,6 +200,7 @@ console.log("\nthe race, as the platform runs it");
 	rules.apply({ action: { progress: { match: v.match, right: R.empties(v.puzzle), ms: 125_400 } }, by: "me" });
 	const r = rules.result();
 	check("alone, the result is played, with the time in seconds", r?.kind === "coop" && JSON.stringify(r.ranking) === '[["me"]]' && r.scores?.me === 125, JSON.stringify(r));
+	check("and the end card says how long it took", r?.title === "SOLVED IN 2:05", r?.title);
 }
 
 {

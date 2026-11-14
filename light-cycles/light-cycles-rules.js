@@ -245,6 +245,11 @@
 	const COUNT_MS = 800; // one beat of the 3-2-1-GO countdown
 	const KEY_EVERY = 10; // steps between views carrying the whole grid
 
+	/** "0:12", for the end card. */
+	const clock = (ms) => {
+		const sec = Math.floor(ms / 1000);
+		return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+	};
 	const reversal = (a, b) => ORDER.indexOf(a) === (ORDER.indexOf(b) + 2) % 4;
 	const gridText = (grid) => Array.from(grid).join("");
 
@@ -275,6 +280,7 @@
 				tickMs: 100,
 				acc: 0,
 				step: 0,
+				raceMs: 0, // race time ridden, step by step
 			};
 			for (const r of s.riders) delete r.d;
 			grid = new Uint8Array(COLS * ROWS);
@@ -297,6 +303,7 @@
 			}
 			advance(grid, s.riders);
 			s.step++;
+			s.raceMs += s.tickMs;
 			// A slow squeeze on the clock, so a cagey endgame between two careful
 			// riders still ends.
 			if (s.step % 120 === 0 && s.tickMs > 60) s.tickMs -= 10;
@@ -368,12 +375,19 @@
 				return { d: botDirection(grid, rider, s.riders.filter((o) => o !== rider && o.alive)) };
 			},
 
-			/** Each round is a result: the last rider moving, then everyone else. */
+			/**
+			 * Each round is a result: the last rider moving, then everyone else.
+			 * Nobody left standing gets v1's own words on the end card, not the
+			 * derived "YOU WIN" (alone) or "DRAW"; a winner's card is derived.
+			 */
 			result() {
 				if (!s.decided) return null;
 				const ids = s.riders.map((r) => r.id);
 				const rest = ids.filter((id) => id !== s.winner);
-				return { kind: "ffa", ranking: s.winner === null ? [ids] : [[s.winner], rest].filter((x) => x.length) };
+				const ranking = s.winner === null ? [ids] : [[s.winner], rest].filter((x) => x.length);
+				if (s.winner !== null) return { kind: "ffa", ranking };
+				const title = ids.length === 1 ? `CRASHED AFTER ${clock(s.raceMs)}` : "EVERYONE CRASHED";
+				return { kind: "ffa", ranking, title };
 			},
 
 			/** A rider whose player left the party is out of the round. */

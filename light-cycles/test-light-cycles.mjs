@@ -333,6 +333,7 @@ console.log("\nthe round, as the platform runs it");
 	const r = rules.result();
 	check("the result: the last rider moving first", r?.kind === "ffa" && (v.winner === null ? r.ranking.length === 1 : r.ranking[0][0] === v.winner), JSON.stringify(r));
 	check("the winner's win is counted", v.winner === null || v.riders.find((x) => x.id === v.winner).wins === 1);
+	check("the end card: a winner's is derived, nobody standing says so", v.winner === null ? r.title === "EVERYONE CRASHED" : !("title" in r), JSON.stringify(r));
 	check("a decided round carries the whole grid", typeof v.grid === "string");
 	const wins = Object.fromEntries(v.riders.map((x) => [x.id, x.wins]));
 	rules.init({ seats, opts: {}, seed: 2, match: 1 });
@@ -361,6 +362,8 @@ console.log("\nthe round, as the platform runs it");
 	}
 	const v = rules.view({ seat: null });
 	check("alone, the round ends when you crash", v.decided && v.winner === null, JSON.stringify({ steps }));
+	const ridden = Math.floor((rules.snapshot().raceMs) / 1000);
+	check("alone, the end card says how long you rode", rules.result()?.title === `CRASHED AFTER ${Math.floor(ridden / 60)}:${String(ridden % 60).padStart(2, "0")}` && ridden > 0, rules.result()?.title);
 	check("the clock tightens every 120 steps", steps < 120 || v.tickMs === 100 - 10 * Math.min(4, Math.floor(steps / 120)), `${steps} steps, ${v.tickMs} ms`);
 }
 
