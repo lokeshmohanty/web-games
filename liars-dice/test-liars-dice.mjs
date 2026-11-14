@@ -2,29 +2,17 @@
 /**
  * test-liars-dice.mjs — the counting, the bid ladder, and the bot.
  *
- *   node scripts/test-liars-dice.mjs
+ *   node liars-dice/test-liars-dice.mjs
  *
  * Two rules decide every round and both are easy to get subtly wrong in a way
  * that still looks like a working game: **ones are wild**, and a call is
  * settled by "at least", not "exactly". Both are pinned here.
  */
 import { readFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
 
-// The platform's runtime (lib/net.js, lib/games.js, ...) these rules load
-// beside the game: a checkout of lokeshmohanty/games, next to this repo by
-// default.
-const PLATFORM = process.env.NEON_PLATFORM
-	? pathToFileURL(process.env.NEON_PLATFORM.replace(/\/?$/, "/"))
-	: new URL("../../games/", import.meta.url);
-
-globalThis.window = globalThis;
-globalThis.location = { href: "file:///x", hash: "", pathname: "/x", search: "" };
-globalThis.history = { replaceState() {} };
-for (const f of ["lib/net.js", "lib/games.js", "lib/secrets.js", "./liars-dice.js"]) {
-	new Function(readFileSync(new URL(f, f.startsWith("./") ? import.meta.url : PLATFORM), "utf8"))();
-}
-const R = globalThis.NeonArcade.liarsDiceRules;
+// The rules alone: no document, no platform.
+new Function(readFileSync(new URL("./liars-dice-rules.js", import.meta.url), "utf8"))();
+const R = globalThis.liarsDiceRules;
 const { DICE, FACES, countFace, countAll, validBid, bidBeats, raisesAfter, resolveCall, rollDice, botAction } = R;
 
 let failures = 0;
@@ -185,9 +173,19 @@ console.log("\nthe reveal, under a race");
 	// await rather than before it, an honest player who just lost a die is
 	// accused of opening the wrong number of dice. It surfaced once, in one bot,
 	// in a suite that otherwise passed.
-	const room = { getMember: () => null, makeAction: () => ({ send() {} }), selfId: "me", isHost: () => true };
-	const secrets = globalThis.NeonArcade.makeSecrets(room);
-	await secrets.ready();
+	// A commitment as the shell's `commit` / `verify` make one (SDK v2): a
+	// SHA-256 over a nonce and the value, checked asynchronously.
+	const enc = (nonce, value) => new TextEncoder().encode(`${nonce}:${JSON.stringify(value)}`);
+	const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+	const secrets = {
+		async commit(value) {
+			const nonce = hex(crypto.getRandomValues(new Uint8Array(16)));
+			return { digest: hex(await crypto.subtle.digest("SHA-256", enc(nonce, value))), nonce, value };
+		},
+		async verify({ digest, nonce, value }) {
+			return hex(await crypto.subtle.digest("SHA-256", enc(nonce, value))) === digest;
+		},
+	};
 
 	const hand = rollDice(5);
 	const c = await secrets.commit(hand);
@@ -213,7 +211,6 @@ console.log("\nthe reveal, under a race");
 	// Not a requirement — a demonstration that the ordering is what mattered,
 	// so a future refactor that moves the read back gets caught by the line above.
 	check("reading it after the await is what accused them", verdicts.afterAwait === "accused", `${verdicts.afterAwait}`);
-	secrets.dispose();
 }
 
 console.log(failures ? `\n${failures} failing\n` : "\nall passing\n");

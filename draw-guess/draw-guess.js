@@ -1,30 +1,28 @@
-// games/draw-guess.js — Draw & Guess as a mountable module.
+// draw-guess/draw-guess.js — Draw & Guess. An SDK v2 managed game, with a
+// stream of strokes beside it.
 //
-// Free-for-all: everyone on a team takes turns drawing while the rest guess,
-// and the host referees the clock and the scoring. Party spectators are left
+// Free-for-all: everyone takes turns drawing while the rest guess. The rounds,
+// the word, the guesses and the scores are draw-guess-rules.js `game()`, which
+// the platform runs on the host: each phone gets its view (the drawer's has the
+// word), the end card and PLAY AGAIN are the platform's, and the heir carries
+// the game on — word and all — if the host leaves. Party spectators are left
 // out of the drawing rotation but still see the board and the chat.
 //
-// Extracted from the standalone page; the game logic is unchanged apart from
-// reading its roster through the party (so spectators are excluded) and
-// tearing itself down in unmount().
+// The strokes are not state. The drawer streams them to everyone on a channel
+// (SDK v2 Layer 1), stamped with the round they belong to, and each phone keeps
+// the picture so far; the host replays it to anyone who comes back mid-round.
+//
+// No bots. A bot that draws would be replaying a canned doodle, and a bot that
+// guesses would be reading the word it was already told — neither is an
+// opponent, and both make the round worse for the people actually playing.
 
-NeonArcade.registerGame({
-	id: "draw-guess",
-	name: "DRAW & GUESS",
-	blurb: "Take turns drawing while everyone races to guess the word.",
-	shape: "free",
-	seats: { min: 2, max: 8 },
-	// No bots. A bot that draws would be replaying a canned doodle, and a bot
-	// that guesses would be reading the word it was already told — neither is an
-	// opponent, and both make the round worse for the people actually playing.
-	// This game is the one that still needs a second person.
-	bots: false,
+const { PHASES } = drawGuessRules;
 
-	mount(ctx) {
-		const { root } = ctx;
+const rules = drawGuessRules.game();
+arcade.managed(rules);
 
-		const style = document.createElement("style");
-		style.textContent = `
+const style = document.createElement("style");
+style.textContent = `
       #game {
         position: absolute;
         inset: 0;
@@ -195,809 +193,461 @@ NeonArcade.registerGame({
       #chat-send {
         padding: 8px 16px;
       }
-    `;
-		root.append(style);
-		const frame = document.createElement("div");
-		frame.innerHTML = `<div id="game" hidden>
-      <div id="hud"></div>
-      <div id="word-display"></div>
-      <div id="canvas-wrap">
-        <canvas id="board"></canvas>
-      </div>
-      <div id="tools"></div>
-      <div id="chat-area">
-        <div id="chat-log"></div>
-        <div id="chat-input-row">
-          <input
-            id="chat-input"
-            type="text"
-            placeholder="Type your guess…"
-            autocomplete="off"
-            maxlength="60"
-          />
-          <button id="chat-send" class="neon-btn">SEND</button>
-        </div>
-      </div>
+`;
+document.head.append(style);
+
+const markup = document.createElement("div");
+markup.innerHTML = `<div id="game">
+  <div id="hud"></div>
+  <div id="word-display"></div>
+  <div id="canvas-wrap">
+    <canvas id="board"></canvas>
+  </div>
+  <div id="tools"></div>
+  <div id="chat-area">
+    <div id="chat-log"></div>
+    <div id="chat-input-row">
+      <input id="chat-input" type="text" placeholder="Type your guess…" autocomplete="off" maxlength="60" />
+      <button id="chat-send" class="neon-btn">SEND</button>
     </div>
-    <div id="overlay" class="overlay" hidden></div>`;
-		while (frame.firstChild) root.append(frame.firstChild);
+  </div>
+</div>
+<div id="overlay" class="overlay" hidden></div>`;
+document.body.append(...markup.children);
 
+// ── Config ──────────────────────────────────────────────
+const CANVAS_W = 600;
+const CANVAS_H = 400;
+// Pens are the theme's colours, sent as an index so every phone draws a
+// stroke in its own theme: "ink" reads on any board, light or dark.
+const PENS = ["ink", 2, 3, 4, 1, 0]; // a token, or a player colour (0-based)
+const penColor = (i) => {
+	const t = arcade.theme;
+	const k = PENS[i] ?? PENS[0];
+	return typeof k === "string" ? t?.tokens[k] : t?.players[k];
+};
+const glows = () => !/,\s*0\)$/.test(arcade.theme?.tokens.glow ?? ", 0)");
+const SIZES = [3, 6, 12];
 
+// ── DOM ──────────────────────────────────────────────────
+const hudEl = document.getElementById("hud");
+const wordEl = document.getElementById("word-display");
+const canvas = document.getElementById("board");
+const c2d = canvas.getContext("2d");
+const toolsEl = document.getElementById("tools");
+const chatLog = document.getElementById("chat-log");
+const chatInput = document.getElementById("chat-input");
+const chatSend = document.getElementById("chat-send");
+const overlayEl = document.getElementById("overlay");
+canvas.width = CANVAS_W;
+canvas.height = CANVAS_H;
 
-		// ── Config ──────────────────────────────────────────────
-		const WORDS = [
-			"cat",
-			"dog",
-			"house",
-			"tree",
-			"sun",
-			"moon",
-			"star",
-			"fish",
-			"bird",
-			"boat",
-			"car",
-			"bike",
-			"flower",
-			"cloud",
-			"mountain",
-			"river",
-			"pizza",
-			"cake",
-			"apple",
-			"banana",
-			"hat",
-			"shoe",
-			"book",
-			"phone",
-			"key",
-			"door",
-			"chair",
-			"table",
-			"lamp",
-			"guitar",
-			"drum",
-			"robot",
-			"rocket",
-			"ghost",
-			"skull",
-			"heart",
-			"eye",
-			"hand",
-			"umbrella",
-			"clock",
-			"bridge",
-			"castle",
-		];
-		const CANVAS_W = 600;
-		const CANVAS_H = 400;
-		const DRAW_TIME = 60; // seconds
-		const REVEAL_TIME = 5; // seconds
-		const ROUNDS_PER_PLAYER = 2; // each player draws this many times
-		// Pens are the theme's colours, sent as an index so every peer draws a
-		// stroke in its own theme: "ink" reads on any board, light or dark.
-		const PENS = ["ink", 2, 3, 4, 1, 0]; // a token, or a player colour (0-based)
-		const penColor = (i) => {
-			const pal = NeonArcade.palette();
-			const k = PENS[i] ?? PENS[0];
-			return typeof k === "string" ? pal[k] : pal.player(k);
-		};
-		const SIZES = [3, 6, 12];
-		const SCORE_BASE = 100;
-		const SCORE_TIME_BONUS = 2;
-		const DRAWER_BONUS = 50;
+// ── State ────────────────────────────────────────────────
+// `view` is the host's word on the game; the picture is this phone's own.
+let view = { match: 0, phase: "choosing", round: 0, totalRounds: 0, drawer: null, hint: "", word: null, guessed: [], scores: {}, chat: [], players: [] };
+let deadline = 0; // performance.now() when this phase ends, from the view's msLeft
+let timeLeft = 0;
+let chatSeen = 0; // the last chat line shown
+let chatMatch = 0;
+let drawPen = 1;
+let drawSize = SIZES[1];
+let drawing = false;
+let lastPt = null;
+let strokeThrottle = 0;
+let pendingStrokes = [];
+let canvasEpoch = -1; // which round's picture the canvas holds
+// Every segment on the canvas since it was last cleared: for a theme change,
+// and for replaying to a player who comes back mid-drawing.
+const strokeLog = [];
 
-		// ── DOM ──────────────────────────────────────────────────
-		const lobbyEl = document.getElementById("lobby");
-		const gameEl = document.getElementById("game");
-		const hudEl = document.getElementById("hud");
-		const wordEl = document.getElementById("word-display");
-		const canvas = document.getElementById("board");
-		const c2d = canvas.getContext("2d");
-		const toolsEl = document.getElementById("tools");
-		const chatLog = document.getElementById("chat-log");
-		const chatInput = document.getElementById("chat-input");
-		const chatSend = document.getElementById("chat-send");
-		const overlayEl = document.getElementById("overlay");
+const self = () => arcade.party?.self ?? null;
+const phase = () => view.phase;
+const amDrawer = () => view.drawer === self();
+/** A round's picture: a newer round's stroke clears the old one. */
+const epochOf = (v) => v.match * 1000 + v.round;
 
-		canvas.width = CANVAS_W;
-		canvas.height = CANVAS_H;
+function nameOf(id) {
+	const m = arcade.party?.members.find((x) => x.id === id);
+	if (m?.name) return m.name;
+	const i = view.players.indexOf(id);
+	return i >= 0 ? `Player ${i + 1}` : String(id ?? "").slice(0, 6);
+}
 
-		// ── State ────────────────────────────────────────────────
-		let room = null;
-		let scores = {}; // peerId -> number
-		let matchNo = 1; // games in this run; the host's count, sent with the state
-		let reportedMatch = null;
-		let names = {}; // peerId -> "Player N"
-		let phase = "lobby"; // lobby | choosing | drawing | reveal | gameover
-		let drawerId = null;
-		let currentWord = "";
-		let wordHint = "";
-		let round = 0;
-		let totalRounds = 0;
-		let timeLeft = 0;
-		let guessedIds = new Set();
-		let myColor = null;
-		let drawPen = 1;
-		let drawSize = SIZES[1];
-		let drawing = false;
-		let lastPt = null;
-		// The round clock is `lib/rounds.js` now, not two hand-rolled timers.
-		// `timeLeft` survives only as what the HUD prints; it is fed by the
-		// scheduler's tick and is no longer broadcast, because every peer runs
-		// the same scheduler and counts down for itself.
-		let rounds = null;
-		let strokeThrottle = 0;
-		let pendingStrokes = [];
-		// Every segment on the canvas since it was last cleared, so a player who
-		// reloads mid-drawing gets the picture back, not a blank canvas.
-		const strokeLog = [];
+// ── Canvas ───────────────────────────────────────────────
+function clearCanvas() {
+	c2d.fillStyle = arcade.theme?.tokens.surface2 ?? "transparent"; // theme-exempt: before the theme arrives
+	c2d.fillRect(0, 0, CANVAS_W, CANVAS_H);
+	strokeLog.length = 0;
+}
 
-		// ── Helpers ──────────────────────────────────────────────
-		function colorFor(id) {
-			let h = 0;
-			for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-			return NeonArcade.palette().player(h % 8);
-		}
+/** The picture again, in the current theme (strokes keep their pen). */
+function repaint() {
+	const all = strokeLog.slice();
+	clearCanvas();
+	for (const seg of all) drawSegment(seg);
+}
 
-		function assignNames() {
-			const all = ctx.players().sort();
-			totalRounds = all.length * ROUNDS_PER_PLAYER;
-			all.forEach((id, i) => {
-				names[id] = "Player " + (i + 1);
-			});
-		}
+function drawSegment(s) {
+	strokeLog.push(s);
+	const color = penColor(s.pen);
+	c2d.strokeStyle = color;
+	c2d.lineWidth = s.size;
+	c2d.lineCap = "round";
+	c2d.lineJoin = "round";
+	c2d.shadowBlur = glows() ? 6 : 0;
+	c2d.shadowColor = color;
+	c2d.beginPath();
+	c2d.moveTo(s.x0, s.y0);
+	c2d.lineTo(s.x1, s.y1);
+	c2d.stroke();
+	c2d.shadowBlur = 0;
+}
 
-		function nameOf(id) {
-			return names[id] || id.slice(0, 6);
-		}
+function drawDot(x, y, color, size) {
+	c2d.fillStyle = color;
+	c2d.shadowBlur = glows() ? 6 : 0;
+	c2d.shadowColor = color;
+	c2d.beginPath();
+	c2d.arc(x, y, size / 2, 0, Math.PI * 2);
+	c2d.fill();
+	c2d.shadowBlur = 0;
+}
 
-		function clearCanvas() {
-			c2d.fillStyle = NeonArcade.palette().surface2;
-			c2d.fillRect(0, 0, CANVAS_W, CANVAS_H);
-			strokeLog.length = 0;
-		}
+/** Make the canvas round `e`'s: a fresh picture when that round is newer. */
+function toEpoch(e) {
+	if (e === canvasEpoch) return true;
+	if (e < canvasEpoch) return false; // a straggler from a round that has gone
+	canvasEpoch = e;
+	clearCanvas();
+	return true;
+}
 
-		/** The picture again, in the current theme (strokes keep their pen). */
-		function repaint() {
-			const all = strokeLog.slice();
-			clearCanvas();
-			for (const seg of all) drawSegment(seg);
-		}
+function pointerPos(e) {
+	const rect = canvas.getBoundingClientRect();
+	const cx = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+	const cy = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+	return { x: (cx / rect.width) * CANVAS_W, y: (cy / rect.height) * CANVAS_H };
+}
 
-		/** A stroke's colour: its pen, or an old peer's colour string. */
-		const strokeColor = (s) => (Number.isInteger(s.pen) ? penColor(s.pen) : s.color);
-
-		function drawSegment(s) {
-			strokeLog.push(s);
-			const color = strokeColor(s);
-			c2d.strokeStyle = color;
-			c2d.lineWidth = s.size;
-			c2d.lineCap = "round";
-			c2d.lineJoin = "round";
-			c2d.shadowBlur = NeonArcade.palette().glows ? 6 : 0;
-			c2d.shadowColor = color;
-			c2d.beginPath();
-			c2d.moveTo(s.x0, s.y0);
-			c2d.lineTo(s.x1, s.y1);
-			c2d.stroke();
-			c2d.shadowBlur = 0;
-		}
-
-		function drawDot(x, y, color, size) {
-			c2d.fillStyle = color;
-			c2d.shadowBlur = NeonArcade.palette().glows ? 6 : 0;
-			c2d.shadowColor = color;
-			c2d.beginPath();
-			c2d.arc(x, y, size / 2, 0, Math.PI * 2);
-			c2d.fill();
-			c2d.shadowBlur = 0;
-		}
-
-		function pointerPos(e) {
-			const rect = canvas.getBoundingClientRect();
-			const cx = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
-			const cy = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
-			return {
-				x: (cx / rect.width) * CANVAS_W,
-				y: (cy / rect.height) * CANVAS_H,
-			};
-		}
-
-		function flushStrokes() {
-			if (pendingStrokes.length === 0) return;
-			const action = room.makeAction("stroke");
-			for (const s of pendingStrokes) action.send(s);
-			pendingStrokes = [];
-		}
-
-		function setupDrawing() {
-			const onDown = (e) => {
-				if (phase !== "drawing" || drawerId !== room.selfId) return;
-				e.preventDefault();
-				drawing = true;
-				lastPt = pointerPos(e);
-				drawDot(lastPt.x, lastPt.y, penColor(drawPen), drawSize);
-				const dot = {
-					x0: lastPt.x,
-					y0: lastPt.y,
-					x1: lastPt.x,
-					y1: lastPt.y,
-					pen: drawPen,
-					size: drawSize,
-				};
-				pendingStrokes.push(dot);
-				strokeLog.push(dot);
-			};
-			const onMove = (e) => {
-				if (!drawing) return;
-				e.preventDefault();
-				const pt = pointerPos(e);
-				const seg = {
-					x0: lastPt.x,
-					y0: lastPt.y,
-					x1: pt.x,
-					y1: pt.y,
-					pen: drawPen,
-					size: drawSize,
-				};
-				drawSegment(seg);
-				pendingStrokes.push(seg);
-				lastPt = pt;
-				const now = performance.now();
-				if (now - strokeThrottle > 33) {
-					flushStrokes();
-					strokeThrottle = now;
-				}
-			};
-			const onUp = () => {
-				if (!drawing) return;
-				drawing = false;
-				flushStrokes();
-			};
-			canvas.addEventListener("mousedown", onDown);
-			canvas.addEventListener("mousemove", onMove);
-			canvas.addEventListener("mouseup", onUp);
-			canvas.addEventListener("mouseleave", onUp);
-			canvas.addEventListener("touchstart", onDown, { passive: false });
-			canvas.addEventListener("touchmove", onMove, { passive: false });
-			canvas.addEventListener("touchend", onUp);
-		}
-
-		function setupTools() {
-			toolsEl.replaceChildren();
-			PENS.forEach((_, i) => {
-				const sw = document.createElement("div");
-				sw.className = "swatch" + (i === drawPen ? " active" : "");
-				sw.style.background = penColor(i);
-				sw.onclick = () => {
-					drawPen = i;
-					toolsEl
-						.querySelectorAll(".swatch")
-						.forEach((s) => s.classList.remove("active"));
-					sw.classList.add("active");
-				};
-				toolsEl.append(sw);
-			});
-			const sep = document.createElement("span");
-			sep.style.width = "1px";
-			sep.style.height = "24px";
-			sep.style.background = "var(--border)";
-			toolsEl.append(sep);
-			SIZES.forEach((s) => {
-				const btn = document.createElement("div");
-				btn.className = "size-btn" + (s === drawSize ? " active" : "");
-				const dot = document.createElement("div");
-				dot.className = "dot";
-				dot.style.width = s + "px";
-				dot.style.height = s + "px";
-				btn.append(dot);
-				btn.onclick = () => {
-					drawSize = s;
-					toolsEl
-						.querySelectorAll(".size-btn")
-						.forEach((b) => b.classList.remove("active"));
-					btn.classList.add("active");
-				};
-				toolsEl.append(btn);
-			});
-			const sep2 = document.createElement("span");
-			sep2.style.width = "1px";
-			sep2.style.height = "24px";
-			sep2.style.background = "var(--border)";
-			toolsEl.append(sep2);
-			const clearBtn = document.createElement("button");
-			clearBtn.className = "neon-btn";
-			clearBtn.id = "clear-btn";
-			clearBtn.textContent = "CLEAR";
-			clearBtn.onclick = () => {
-				if (phase === "drawing" && drawerId === room.selfId) {
-					clearCanvas();
-					room.makeAction("clear").send({});
-				}
-			};
-			toolsEl.append(clearBtn);
-		}
-
-		function updateHud() {
-			hudEl.replaceChildren();
-			const info = document.createElement("div");
-			info.className = "info";
-			if (phase === "gameover") {
-				info.textContent = "GAME OVER";
-			} else if (
-				phase === "choosing" ||
-				phase === "drawing" ||
-				phase === "reveal"
-			) {
-				info.textContent = `Round ${Math.min(round + 1, totalRounds)} / ${totalRounds}`;
-			} else {
-				info.textContent = "";
-			}
-			const timerEl = document.createElement("div");
-			timerEl.className = "timer";
-			if (phase === "drawing" || phase === "reveal")
-				timerEl.textContent = timeLeft + "s";
-			const scoresEl = document.createElement("div");
-			scoresEl.className = "scores";
-			const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1]);
-			for (const [id, sc] of sorted) {
-				const pill = document.createElement("div");
-				pill.className = "score-pill" + (id === room.selfId ? " me" : "");
-				pill.textContent = `${nameOf(id)}: ${sc}`;
-				scoresEl.append(pill);
-			}
-			hudEl.append(info, timerEl, scoresEl);
-		}
-
-		function updateWordDisplay() {
-			if (phase === "drawing" && drawerId === room.selfId) {
-				wordEl.textContent = currentWord.toUpperCase();
-				wordEl.style.color = "var(--good)";
-				wordEl.style.textShadow = "0 0 10px var(--glow)";
-			} else if (phase === "drawing") {
-				wordEl.textContent = wordHint;
-				wordEl.style.color = "var(--accent)";
-				wordEl.style.textShadow = "0 0 10px var(--accent-glow)";
-			} else if (phase === "reveal" || phase === "gameover") {
-				wordEl.textContent = currentWord ? currentWord.toUpperCase() : "";
-				wordEl.style.color = "var(--accent2)";
-				wordEl.style.textShadow = "0 0 10px var(--glow)";
-			} else {
-				wordEl.textContent = "";
-			}
-		}
-
-		function updateInputState() {
-			const canGuess =
-				phase === "drawing" &&
-				drawerId !== room.selfId &&
-				!guessedIds.has(room.selfId);
-			chatInput.disabled = !canGuess;
-			chatInput.placeholder = canGuess
-				? "Type your guess…"
-				: drawerId === room.selfId
-					? "You are drawing!"
-					: guessedIds.has(room.selfId)
-						? "You guessed it! �"
-						: "Waiting…";
-			chatSend.disabled = !canGuess;
-		}
-
-		function addChatLine(name, text, kind) {
-			const line = document.createElement("div");
-			line.className = "line" + (kind ? " " + kind : "");
-			if (kind === "correct") {
-				line.textContent = `🎉 ${name} guessed it!`;
-			} else if (kind === "system") {
-				line.textContent = text;
-			} else {
-				const nameSpan = document.createElement("span");
-				nameSpan.className = "name";
-				nameSpan.textContent = name + ": ";
-				line.append(nameSpan, document.createTextNode(text));
-			}
-			chatLog.append(line);
-			chatLog.scrollTop = chatLog.scrollHeight;
-		}
-
-		function showOverlay(title, btnText, btnCb, sub) {
-			overlayEl.replaceChildren();
-			const h1 = document.createElement("h1");
-			h1.textContent = title;
-			overlayEl.append(h1);
-			if (sub) {
-				const p = document.createElement("p");
-				p.textContent = sub;
-				overlayEl.append(p);
-			}
-			if (btnText) {
-				const btn = document.createElement("button");
-				btn.className = "neon-btn";
-				btn.textContent = btnText;
-				btn.onclick = btnCb;
-				overlayEl.append(btn);
-			}
-			overlayEl.hidden = false;
-		}
-
-		function hideOverlay() {
-			overlayEl.hidden = true;
-		}
-
-		// ── Host logic ───────────────────────────────────────────
-		function broadcastState() {
-			if (!room.isHost()) return;
-			// `phase`, `round` and the countdown are not in here any more: every
-			// peer gets those from the round clock, which is the whole point of
-			// having moved onto it.
-			room.makeAction("state").send({
-				drawerId,
-				wordHint,
-				totalRounds,
-				scores,
-				guessedIds: [...guessedIds],
-				match: matchNo,
-			});
-		}
-
-		function pickDrawer() {
-			const players = ctx.players().sort();
-			if (players.length === 0) return null;
-			return players[round % players.length];
-		}
-
-		/**
-		 * Build the round clock.
-		 *
-		 * This game is where `lib/rounds.js` came from: it had a `phase` string, a
-		 * chain of `setTimeout`s walking choosing → drawing → reveal, and a
-		 * re-check inside every callback that the phase it woke up in was still
-		 * the phase it was scheduled for. All of that is now one declaration, and
-		 * the re-check is gone because a disposed scheduler fires nothing.
-		 *
-		 * Rebuilt rather than reset on a new game: `dispose()` is one-way, and the
-		 * number of rounds depends on how many people are playing.
-		 */
-		function buildRounds() {
-			rounds?.dispose();
-			rounds = NeonArcade.makeRounds(ctx, {
-				name: "dg",
-				rounds: totalRounds,
-				phases: [
-					{ name: "choosing", ms: 2000 },
-					{ name: "drawing", ms: DRAW_TIME * 1000 },
-					{ name: "reveal", ms: REVEAL_TIME * 1000 },
-				],
-				onPhase: (info) => {
-					phase = info.phase;
-					round = info.round;
-					timeLeft = info.secondsLeft;
-					if (info.phase === "choosing") enterChoosing();
-					else if (info.phase === "drawing") enterDrawing();
-					else if (info.phase === "reveal") enterReveal();
-					updateHud();
-					updateWordDisplay();
-					updateInputState();
-				},
-				onTick: (info) => {
-					// Every peer counts its own seconds off the duration the host
-					// sent, so the number in the corner no longer rides on a state
-					// broadcast once a second.
-					timeLeft = info.secondsLeft;
-					updateHud();
-				},
-				onFinish: () => {
-					phase = "gameover";
-					endGame();
-				},
-			});
-		}
-
-		/** Host picks the word and the drawer; everyone else just repaints. */
-		function enterChoosing() {
-			guessedIds = new Set();
-			if (!room.isHost()) return;
-			currentWord = WORDS[Math.floor(Math.random() * WORDS.length)];
-			drawerId = pickDrawer();
-			wordHint = "_".repeat(currentWord.length);
-			broadcastState();
-			// The word goes to one person. Addressed, not sealed — see
-			// lib/secrets.js — which is the honest level of protection for a
-			// party game where the cost of a leak is a spoiled round.
-			wordAction.send({ word: currentWord }, { target: drawerId });
-		}
-
-		function clearCanvasOnAll() {
-			// The host clears its own canvas as well: an ordinary broadcast never
-			// comes back to its sender.
-			clearCanvas();
-			room.makeAction("clear").send({});
-		}
-
-		function enterDrawing() {
-			if (!room.isHost()) return;
-			clearCanvasOnAll();
-			broadcastState();
-		}
-
-		function enterReveal() {
-			if (!room.isHost()) return;
-			// The word becomes public at the reveal.
-			wordAction.send({ word: currentWord });
-			broadcastState();
-		}
-
-		/** Places by points; everyone who played is in it, at 0 if they never scored. */
-		function reportOver() {
-			if (reportedMatch === matchNo) return;
-			reportedMatch = matchNo;
-			const ids = [...new Set([...ctx.players(), ...Object.keys(scores)])];
-			const pts = (id) => scores[id] ?? 0;
-			const levels = [...new Set(ids.map(pts))].sort((a, b) => b - a);
-			ctx.reportResult?.({
-				kind: "ffa",
-				match: matchNo,
-				ranking: levels.map((p) => ids.filter((id) => pts(id) === p)),
-				scores: Object.fromEntries(ids.map((id) => [id, pts(id)])),
-			});
-		}
-
-		function endGame() {
-			broadcastState();
-			reportOver();
-			updateHud();
-			updateWordDisplay();
-			if (room.isHost()) {
-				showOverlay("GAME OVER", "PLAY AGAIN", restart, finalScoresText());
-			} else {
-				showOverlay("GAME OVER", null, null, finalScoresText());
-				const p = document.createElement("p");
-				p.textContent = "Waiting for host…";
-				overlayEl.append(p, NeonArcade.hostNewGameButton());
-			}
-		}
-
-		function finalScoresText() {
-			const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1]);
-			if (sorted.length === 0) return "";
-			const [winnerId, winnerScore] = sorted[0];
-			return `${nameOf(winnerId)} wins with ${winnerScore} points!`;
-		}
-
-		function restart() {
-			matchNo++;
-			scores = {};
-			round = 0;
-			guessedIds = new Set();
-			chatLog.replaceChildren();
-			hideOverlay();
-			buildRounds();
-			rounds.start();
-		}
-
-		function handleGuess(text, peerId) {
-			if (!room.isHost()) return;
-			if (phase !== "drawing") return;
-			if (peerId === drawerId) return;
-			if (guessedIds.has(peerId)) return;
-			const guess = text.trim().toLowerCase();
-			if (!guess) return;
-			if (guess === currentWord.toLowerCase()) {
-				guessedIds.add(peerId);
-				// Read off the clock rather than the HUD's copy of it: the tick
-				// only lands five times a second, and the bonus should reflect the
-				// moment the guess arrived.
-				const bonus = (rounds?.state().secondsLeft ?? 0) * SCORE_TIME_BONUS;
-				scores[peerId] = (scores[peerId] || 0) + SCORE_BASE + bonus;
-				scores[drawerId] = (scores[drawerId] || 0) + DRAWER_BONUS;
-				room
-					.makeAction("chat")
-					.send({ peerId, name: nameOf(peerId), text: "", correct: true });
-				addChatLine(nameOf(peerId), "", "correct");
-				broadcastState();
-				updateHud();
-				// all guessers done?
-				const guessers = ctx.players().filter(
-					(id) => id !== drawerId,
-				);
-				// Everybody got it, so the drawing phase is over now rather than
-				// when its clock runs out. This is exactly what `rounds.next()`
-				// was added for.
-				if (guessedIds.size >= guessers.length) rounds?.next();
-			} else {
-				room
-					.makeAction("chat")
-					.send({ peerId, name: nameOf(peerId), text, correct: false });
-				addChatLine(nameOf(peerId), text, "");
-			}
-		}
-
-		// ── Networking ───────────────────────────────────────────
-		// ─ Networking ───────────────────────────────────────────
-		// What used to be mountLobby's onReady/onStart, run directly: by the time
-		// a module is mounted the room exists and the game is already starting.
-		room = ctx.room;
-		myColor = colorFor(room.selfId);
-
-		/** The party knows what people called themselves; prefer that to "Player N". */
-		function applyPartyNames() {
-			for (const m of room.getMembers()) if (m.name) names[m.id] = m.name;
-		}
-
-		assignNames();
-		applyPartyNames();
-		setupTools();
-		// A new theme: pens, swatches and the picture so far follow it.
-		const onTheme = () => {
-			myColor = colorFor(room.selfId);
-			setupTools();
-			repaint();
-		};
-		window.addEventListener("neon:theme", onTheme);
-		setupDrawing();
+// ── The stroke stream (SDK v2 Layer 1 channels) ──────────
+const strokeCh = arcade.channel("stroke", (seg) => {
+	if (seg && Number.isFinite(seg.e) && toEpoch(seg.e)) drawSegment(seg);
+});
+const clearCh = arcade.channel("clear", (d) => {
+	if (Number.isFinite(d?.e) && d.e >= canvasEpoch) {
+		canvasEpoch = d.e;
 		clearCanvas();
-
-		const stateAction = room.makeAction("state");
-		const wordAction = room.makeAction("word");
-		const strokeAction = room.makeAction("stroke");
-		const clearAction = room.makeAction("clear");
-		const guessAction = room.makeAction("guess");
-		const chatAction = room.makeAction("chat");
-		const replayAction = room.makeAction("strokes");
-
-		/** Host: the canvas so far, to one player, in chunks a data channel takes. */
-		function replayTo(peerId) {
-			const all = strokeLog.slice();
-			for (let i = 0; i === 0 || i < all.length; i += 200) {
-				replayAction.send({ first: i === 0, segs: all.slice(i, i + 200) }, { target: peerId });
-			}
-		}
-
-		stateAction.onMessage = (data) => {
-			drawerId = data.drawerId;
-			wordHint = data.wordHint;
-			totalRounds = data.totalRounds;
-			scores = data.scores || {};
-			matchNo = data.match ?? matchNo;
-			guessedIds = new Set(data.guessedIds || []);
-			updateHud();
-			updateWordDisplay();
-			updateInputState();
-		};
-
-		wordAction.onMessage = (data) => {
-			currentWord = data.word;
-			updateWordDisplay();
-		};
-
-		strokeAction.onMessage = (data) => drawSegment(data);
-		replayAction.onMessage = (data, { peerId }) => {
-			if (peerId !== room.hostId()) return;
-			if (data.first) clearCanvas();
-			for (const seg of data.segs ?? []) drawSegment(seg);
-		};
-		clearAction.onMessage = () => clearCanvas();
-		guessAction.onMessage = (data, { peerId }) => handleGuess(data.text, peerId);
-
-		chatAction.onMessage = (data) => {
-			if (data.correct) addChatLine(data.name, "", "correct");
-			else addChatLine(data.name, data.text, "");
-		};
-
-		const sendGuess = () => {
-			const text = chatInput.value.trim();
-			if (!text) return;
-			chatInput.value = "";
-			if (room.isHost()) handleGuess(text, room.selfId);
-			else guessAction.send({ text }, { target: room.hostId() });
-		};
-		chatSend.onclick = sendGuess;
-		const onChatKey = (e) => {
-			if (e.key === "Enter") sendGuess();
-		};
-		chatInput.addEventListener("keydown", onChatKey);
-
-		// Formerly onStart.
-		gameEl.hidden = false;
+	}
+});
+const replayCh = arcade.channel("strokes", (d, from) => {
+	if (from !== arcade.party?.host || !Number.isFinite(d?.e)) return;
+	if (d.first && d.e >= canvasEpoch) {
+		canvasEpoch = d.e;
 		clearCanvas();
-		buildRounds();
-		if (room.isHost()) {
-			scores = {};
-			round = 0;
-			guessedIds = new Set();
-			chatLog.replaceChildren();
-			rounds.start();
+	}
+	if (d.e !== canvasEpoch) return;
+	for (const seg of d.segs ?? []) drawSegment(seg);
+});
+
+function flushStrokes() {
+	if (pendingStrokes.length === 0) return;
+	for (const s of pendingStrokes) strokeCh.send(s);
+	pendingStrokes = [];
+}
+
+/** Host: the canvas so far, to one player, in chunks a data channel takes. */
+function replayTo(who) {
+	const all = strokeLog.slice();
+	for (let i = 0; i === 0 || i < all.length; i += 200) {
+		replayCh.send({ first: i === 0, e: canvasEpoch, segs: all.slice(i, i + 200) }, who);
+	}
+}
+
+function setupDrawing() {
+	const onDown = (e) => {
+		if (phase() !== "drawing" || !amDrawer()) return;
+		e.preventDefault();
+		toEpoch(epochOf(view));
+		drawing = true;
+		lastPt = pointerPos(e);
+		drawDot(lastPt.x, lastPt.y, penColor(drawPen), drawSize);
+		const dot = { e: canvasEpoch, x0: lastPt.x, y0: lastPt.y, x1: lastPt.x, y1: lastPt.y, pen: drawPen, size: drawSize };
+		pendingStrokes.push(dot);
+		strokeLog.push(dot);
+	};
+	const onMove = (e) => {
+		if (!drawing) return;
+		e.preventDefault();
+		const pt = pointerPos(e);
+		const seg = { e: canvasEpoch, x0: lastPt.x, y0: lastPt.y, x1: pt.x, y1: pt.y, pen: drawPen, size: drawSize };
+		drawSegment(seg);
+		pendingStrokes.push(seg);
+		lastPt = pt;
+		const now = performance.now();
+		if (now - strokeThrottle > 33) {
+			flushStrokes();
+			strokeThrottle = now;
 		}
+	};
+	const onUp = () => {
+		if (!drawing) return;
+		drawing = false;
+		flushStrokes();
+	};
+	canvas.addEventListener("mousedown", onDown);
+	canvas.addEventListener("mousemove", onMove);
+	canvas.addEventListener("mouseup", onUp);
+	canvas.addEventListener("mouseleave", onUp);
+	canvas.addEventListener("touchstart", onDown, { passive: false });
+	canvas.addEventListener("touchmove", onMove, { passive: false });
+	canvas.addEventListener("touchend", onUp);
+}
+
+function setupTools() {
+	toolsEl.replaceChildren();
+	PENS.forEach((_, i) => {
+		const sw = document.createElement("div");
+		sw.className = "swatch" + (i === drawPen ? " active" : "");
+		sw.style.background = penColor(i);
+		sw.onclick = () => {
+			drawPen = i;
+			toolsEl.querySelectorAll(".swatch").forEach((s) => s.classList.remove("active"));
+			sw.classList.add("active");
+		};
+		toolsEl.append(sw);
+	});
+	const sep = document.createElement("span");
+	sep.style.width = "1px";
+	sep.style.height = "24px";
+	sep.style.background = "var(--border)";
+	toolsEl.append(sep);
+	SIZES.forEach((s) => {
+		const btn = document.createElement("div");
+		btn.className = "size-btn" + (s === drawSize ? " active" : "");
+		const dot = document.createElement("div");
+		dot.className = "dot";
+		dot.style.width = s + "px";
+		dot.style.height = s + "px";
+		btn.append(dot);
+		btn.onclick = () => {
+			drawSize = s;
+			toolsEl.querySelectorAll(".size-btn").forEach((b) => b.classList.remove("active"));
+			btn.classList.add("active");
+		};
+		toolsEl.append(btn);
+	});
+	const sep2 = document.createElement("span");
+	sep2.style.width = "1px";
+	sep2.style.height = "24px";
+	sep2.style.background = "var(--border)";
+	toolsEl.append(sep2);
+	const clearBtn = document.createElement("button");
+	clearBtn.className = "neon-btn";
+	clearBtn.id = "clear-btn";
+	clearBtn.textContent = "CLEAR";
+	clearBtn.onclick = () => {
+		if (phase() === "drawing" && amDrawer()) {
+			toEpoch(epochOf(view));
+			clearCanvas();
+			clearCh.send({ e: canvasEpoch });
+		}
+	};
+	toolsEl.append(clearBtn);
+}
+
+// ── The screen ───────────────────────────────────────────
+function updateHud() {
+	hudEl.replaceChildren();
+	const info = document.createElement("div");
+	info.className = "info";
+	const p = phase();
+	if (p === "gameover") info.textContent = "GAME OVER";
+	else if (view.totalRounds) info.textContent = `Round ${Math.min(view.round + 1, view.totalRounds)} / ${view.totalRounds}`;
+	const timerEl = document.createElement("div");
+	timerEl.className = "timer";
+	if (p === "drawing" || p === "reveal") timerEl.textContent = timeLeft + "s";
+	const scoresEl = document.createElement("div");
+	scoresEl.className = "scores";
+	const sorted = Object.entries(view.scores).sort((a, b) => b[1] - a[1]);
+	for (const [id, sc] of sorted) {
+		const pill = document.createElement("div");
+		pill.className = "score-pill" + (id === self() ? " me" : "");
+		pill.textContent = `${nameOf(id)}: ${sc}`;
+		scoresEl.append(pill);
+	}
+	hudEl.append(info, timerEl, scoresEl);
+}
+
+function updateWordDisplay() {
+	const p = phase();
+	if (p === "drawing" && amDrawer()) {
+		wordEl.textContent = (view.word ?? "").toUpperCase();
+		wordEl.style.color = "var(--good)";
+		wordEl.style.textShadow = "0 0 10px var(--glow)";
+	} else if (p === "drawing") {
+		wordEl.textContent = view.hint;
+		wordEl.style.color = "var(--accent)";
+		wordEl.style.textShadow = "0 0 10px var(--accent-glow)";
+	} else if (p === "reveal" || p === "gameover") {
+		wordEl.textContent = view.word ? view.word.toUpperCase() : "";
+		wordEl.style.color = "var(--accent2)";
+		wordEl.style.textShadow = "0 0 10px var(--glow)";
+	} else {
+		wordEl.textContent = "";
+	}
+}
+
+function updateInputState() {
+	const guessed = view.guessed.includes(self());
+	const canGuess = phase() === "drawing" && !amDrawer() && !guessed;
+	chatInput.disabled = !canGuess;
+	chatInput.placeholder = canGuess ? "Type your guess…" : amDrawer() ? "You are drawing!" : guessed ? "You guessed it! 🎉" : "Waiting…";
+	chatSend.disabled = !canGuess;
+}
+
+function addChatLine(name, text, kind) {
+	const line = document.createElement("div");
+	line.className = "line" + (kind ? " " + kind : "");
+	if (kind === "correct") {
+		line.textContent = `🎉 ${name} guessed it!`;
+	} else if (kind === "system") {
+		line.textContent = text;
+	} else {
+		const nameSpan = document.createElement("span");
+		nameSpan.className = "name";
+		nameSpan.textContent = name + ": ";
+		line.append(nameSpan, document.createTextNode(text));
+	}
+	chatLog.append(line);
+	chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+/** The final scores, under the platform's end card (SEE THE BOARD shows them). */
+function showGameOver() {
+	overlayEl.replaceChildren();
+	const h1 = document.createElement("h1");
+	h1.textContent = "GAME OVER";
+	overlayEl.append(h1);
+	const sorted = Object.entries(view.scores).sort((a, b) => b[1] - a[1]);
+	if (sorted.length) {
+		const p = document.createElement("p");
+		p.textContent = `${nameOf(sorted[0][0])} wins with ${sorted[0][1]} points!`;
+		overlayEl.append(p);
+	}
+	if (!arcade.isHost()) {
+		const b = document.createElement("button");
+		b.className = "neon-btn";
+		b.textContent = "HOST A NEW GAME";
+		b.onclick = () => arcade.send("hostNew");
+		overlayEl.append(b);
+	}
+	overlayEl.hidden = false;
+}
+
+function render() {
+	updateHud();
+	updateWordDisplay();
+	updateInputState();
+}
+
+// ── The round clock ──────────────────────────────────────
+// The host's page asks the rules to move on when a deadline passes; the rules
+// refuse a move that is early or for a phase that has gone.
+let clockTimer = null;
+function driveClock() {
+	clearTimeout(clockTimer);
+	if (!arcade.isHost() || phase() === "gameover") return;
+	const key = view.clock;
+	clockTimer = setTimeout(() => arcade.act({ clock: key }), Math.max(0, deadline - performance.now()) + 30);
+}
+arcade.on("rejected", ({ a, reason }) => {
+	if (a && "clock" in a && reason === "not yet" && a.clock === view.clock) clockTimer = setTimeout(() => arcade.act({ clock: a.clock }), 100);
+});
+setInterval(() => {
+	const left = Math.max(0, Math.ceil((deadline - performance.now()) / 1000));
+	if (left !== timeLeft) {
+		timeLeft = left;
 		updateHud();
-		updateWordDisplay();
-		updateInputState();
+	}
+}, 200);
 
-		return {
-			onPeerJoin(peerId, info) {
-				if (room.isHost()) {
-					assignNames();
-					applyPartyNames();
-					scores[peerId] = scores[peerId] || 0;
-					broadcastState();
-					// The phase and its countdown, which only go out when they change.
-					rounds?.sync();
-					if (
-						(phase === "drawing" || phase === "reveal" || phase === "choosing") &&
-						peerId === drawerId
-					) {
-						wordAction.send({ word: currentWord }, { target: peerId });
-					}
-					if (phase === "drawing" || phase === "reveal") replayTo(peerId);
-					// A mounted notice (`back`) also follows every real join.
-					if (!info?.back) addChatLine("", `${nameOf(peerId)} joined`, "system");
-				}
-				assignNames();
-				applyPartyNames();
-				updateHud();
-			},
-			onPeerLeave(peerId) {
-				if (room.isHost()) {
-					assignNames();
-					applyPartyNames();
-					addChatLine("", `${nameOf(peerId)} left`, "system");
-					// The drawer walked off. End the phase rather than let everyone
-					// stare at a canvas nobody is drawing on.
-					if (peerId === drawerId && phase === "drawing") rounds?.next();
-					broadcastState();
-				}
-				updateHud();
-			},
-			onRoster() {
-				assignNames();
-				applyPartyNames();
-				updateHud();
-			},
-			/**
-			 * The crown moved to us mid-game. Scores and the round came with every
-			 * broadcast; the clock is adopted from our mirror of it. The word is
-			 * the one thing that may not have: only the drawer and the old host
-			 * knew it before the reveal. Knowing it, the round goes on; not
-			 * knowing it, the round starts again from choosing, with a new word.
-			 */
-			takeOver() {
-				if (phase === "gameover") {
-					endGame();
-					return true;
-				}
-				const known = phase === "reveal" || (drawerId === room.selfId && !!currentWord);
-				const ok = known ? rounds?.adopt() : rounds?.adopt({ index: 0 });
-				if (ok) broadcastState();
-				return !!ok;
-			},
-			/** The live round, for the tests. */
-			debug: () => ({
-				phase,
-				drawerId,
-				scores: { ...scores },
-				word: currentWord,
-				hint: wordHint,
-				strokes: strokeLog.length,
-			}),
-			unmount() {
-				// One line where there were four: the round clock owns every timer
-				// this game had, and disposing it is what stops them broadcasting
-				// into whatever game is mounted next.
-				rounds?.dispose();
-				chatInput.removeEventListener("keydown", onChatKey);
-				window.removeEventListener("neon:theme", onTheme);
-				for (const a of [
-					stateAction,
-					wordAction,
-					strokeAction,
-					clearAction,
-					guessAction,
-					chatAction,
-				]) {
-					a.onMessage = null;
-				}
-				root.replaceChildren();
-			},
-		};
-	},
+// ── The host's word ──────────────────────────────────────
+function onView(next) {
+	const prev = view;
+	view = next;
+	deadline = performance.now() + (next.msLeft ?? 0);
+	timeLeft = Math.max(0, Math.ceil((next.msLeft ?? 0) / 1000));
+	// A new game: a clean chat and canvas.
+	if (next.match !== chatMatch) {
+		chatMatch = next.match;
+		chatSeen = 0;
+		chatLog.replaceChildren();
+		overlayEl.hidden = true;
+	}
+	for (const line of next.chat) {
+		if (line.n <= chatSeen) continue;
+		chatSeen = line.n;
+		addChatLine(nameOf(line.id), line.text ?? "", line.kind === "correct" ? "correct" : "");
+	}
+	// The drawing starts on a clean canvas (or the drawer's first stroke got
+	// here first and already cleared it).
+	if (next.phase === "drawing") toEpoch(epochOf(next));
+	if (next.phase === "gameover") showGameOver();
+	else if (prev.phase === "gameover") overlayEl.hidden = true;
+	render();
+	driveClock();
+}
+
+// ── Guessing ─────────────────────────────────────────────
+const sendGuess = () => {
+	const text = chatInput.value.trim();
+	if (!text) return;
+	chatInput.value = "";
+	arcade.act({ guess: text });
+};
+chatSend.onclick = sendGuess;
+chatInput.addEventListener("keydown", (e) => {
+	if (e.key === "Enter") sendGuess();
+});
+
+// ── The party's news ─────────────────────────────────────
+arcade.on("view", ({ state }) => onView(state));
+arcade.on("join", ({ who, info }) => {
+	if (!arcade.isHost()) return;
+	// The picture so far, to someone who (re)joined mid-round.
+	if (phase() === "drawing" || phase() === "reveal") replayTo(who);
+	if (!info?.back) addChatLine("", `${nameOf(who)} joined`, "system");
+	updateHud();
+});
+arcade.on("leave", ({ who }) => {
+	if (arcade.isHost()) addChatLine("", `${nameOf(who)} left`, "system");
+	updateHud();
+});
+// The crown may move here: the clock is then this page's to drive.
+arcade.on("roster", () => {
+	driveClock();
+	updateHud();
+});
+// A new theme: pens, swatches and the picture so far follow it.
+arcade.on("theme.set", () => {
+	setupTools();
+	repaint();
+});
+
+arcade.init.then(() => {
+	setupTools();
+	setupDrawing();
+	clearCanvas();
+	render();
+});
+
+/** The live round, for the tests. */
+arcade.debug = () => ({
+	phase: view.phase,
+	drawerId: view.drawer,
+	scores: { ...view.scores },
+	// As in v1: the host knows the word (it picked it); its live rules say so.
+	word: view.word ?? (arcade.isHost() ? rules.hostWord() : null) ?? "",
+	hint: view.hint,
+	strokes: strokeLog.length,
 });

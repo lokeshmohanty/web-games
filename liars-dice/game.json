@@ -1,10 +1,10 @@
 {
-  "sdk": 1,
+  "sdk": 2,
   "id": "liars-dice",
   "name": "LIAR'S DICE",
   "title": "Liar's Dice",
   "blurb": "Bid on dice you cannot see. Ones are wild. Call a bluff and someone loses one.",
-  "description": "Bid on dice you cannot see. Ones are wild. Nobody deals — you roll your own and commit to them, so the cups can be trusted when they come up.",
+  "description": "Bid on dice you cannot see. Ones are wild. Nobody deals \u2014 you roll your own and commit to them, so the cups can be trusted when they come up.",
   "entry": "index.html",
   "shape": "free",
   "seats": {

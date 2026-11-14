@@ -5,8 +5,10 @@
     <title>SUDOKU</title>
   </head>
   <body>
-    <!-- The platform inlines its runtime ahead of this: see docs/sdk.md in
-         lokeshmohanty/games. -->
+    <!-- SDK v2, managed state: the platform inlines sdk/v2/runtime.js ahead of
+         these and runs the rules in sudoku-rules.js on the host (docs/sdk-v2.md
+         in lokeshmohanty/games). -->
+    <script src="sudoku-rules.js"></script>
     <script src="sudoku.js"></script>
   </body>
 </html>

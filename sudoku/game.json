@@ -1,10 +1,11 @@
 {
-  "sdk": 1,
+  "sdk": 2,
+  "state": "managed",
   "id": "sudoku",
   "name": "SUDOKU",
   "title": "Sudoku",
   "blurb": "Alone against the clock, or a race: same puzzle, first to finish wins.",
-  "description": "Classic Sudoku in four difficulties, with pencil notes and a daily puzzle that is the same for everyone. Play alone for a best time, or race friends and bots on the same grid — first to fill it in correctly wins.",
+  "description": "Classic Sudoku in four difficulties, with pencil notes and a daily puzzle that is the same for everyone. Play alone for a best time, or race friends and bots on the same grid \u2014 first to fill it in correctly wins.",
   "entry": "index.html",
   "shape": "free",
   "seats": {

@@ -5,8 +5,10 @@
     <title>DRAW &amp; GUESS</title>
   </head>
   <body>
-    <!-- The platform inlines its runtime ahead of this: see docs/sdk.md in
-         lokeshmohanty/games. -->
+    <!-- SDK v2, managed state: the platform inlines sdk/v2/runtime.js ahead of
+         these and runs draw-guess-rules.js on the host; the strokes travel on
+         channels beside it (docs/sdk-v2.md in lokeshmohanty/games). -->
+    <script src="draw-guess-rules.js"></script>
     <script src="draw-guess.js"></script>
   </body>
 </html>

@@ -2,7 +2,7 @@
 /**
  * test-light-cycles.mjs — the arena simulation, with no arena drawn.
  *
- *   node scripts/test-light-cycles.mjs
+ *   node light-cycles/test-light-cycles.mjs
  *
  * The one rule worth testing hard is what happens when two riders enter the
  * same cell on the same tick. Resolving riders one at a time gets that wrong in
@@ -16,22 +16,10 @@
  * merely avoids dying.
  */
 import { readFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
 
-// The platform's runtime (lib/net.js, lib/games.js, ...) these rules load
-// beside the game: a checkout of lokeshmohanty/games, next to this repo by
-// default.
-const PLATFORM = process.env.NEON_PLATFORM
-	? pathToFileURL(process.env.NEON_PLATFORM.replace(/\/?$/, "/"))
-	: new URL("../../games/", import.meta.url);
-
-globalThis.window = globalThis;
-globalThis.location = { href: "file:///x", hash: "", pathname: "/x", search: "" };
-globalThis.history = { replaceState() {} };
-for (const f of ["lib/net.js", "lib/games.js", "lib/ui.js", "./light-cycles.js"]) {
-	new Function(readFileSync(new URL(f, f.startsWith("./") ? import.meta.url : PLATFORM), "utf8"))();
-}
-const R = globalThis.NeonArcade.lightCycleRules;
+// The rules alone: no document, no platform.
+new Function(readFileSync(new URL("./light-cycles-rules.js", import.meta.url), "utf8"))();
+const R = globalThis.lightCycleRules;
 const { COLS, ROWS, ORDER, STEP, SPAWNS, idx, inBounds, openSpace, distancesFrom, territory, botDirection, advance } = R;
 
 let failures = 0;
@@ -287,6 +275,93 @@ const survivor = (grid, r) => {
 	check("no two survivors share a cell",
 		new Set(alive.map((x) => `${x.c},${x.r}`)).size === alive.length);
 	check("every wall belongs to exactly one rider", out.grid.every((v) => v >= 0 && v <= 8));
+}
+
+// ---------------------------------------------------------------------------
+console.log("\nthe round, as the platform runs it");
+
+{
+	const { HZ, KEY_EVERY, game } = R;
+	const dt = 1 / HZ;
+	const rules = game();
+	const seats = [{ id: "pA", bot: false }, { id: "bot_1", bot: true }, { id: "bot_2", bot: true }];
+	rules.init({ seats, opts: {}, seed: 1, match: 0 });
+	let v = rules.view({ seat: "pA" });
+	check("a round opens on a countdown", v.countdown === 4 && !v.racing && !v.decided);
+	check("with the whole grid, three heads on it", typeof v.grid === "string" && [...v.grid].filter((x) => x !== "0").length === 3);
+	check("bots do not think during the countdown", rules.bot({ seat: "bot_1" }) === null);
+	check("moves are not actions: steering is input", typeof rules.apply({ action: { d: "N" }, by: "pA" }) === "string");
+	let ticks = 0;
+	const inputs = {};
+	const run = (n, each) => {
+		for (let i = 0; i < n; i++) {
+			for (const id of ["bot_1", "bot_2"]) {
+				const b = rules.bot({ seat: id });
+				if (b) inputs[id] = b;
+			}
+			each?.();
+			rules.tick({ inputs: { ...inputs }, dt });
+			ticks++;
+		}
+	};
+	run(Math.ceil((4 * 800) / (1000 / HZ)));
+	v = rules.view({ seat: "pA" });
+	check("3-2-1-GO takes 3.2 s of ticks", v.racing && v.countdown === 0, JSON.stringify({ c: v.countdown, r: v.racing, ticks }));
+	const at = v.riders[0];
+	run(2);
+	v = rules.view({ seat: "pA" });
+	check("a step every 100 ms at first (two ticks)", v.step === 1 && v.riders[0].c === at.c + 1, JSON.stringify(v.riders[0]));
+	check("between full grids, a view carries only heads", v.step % KEY_EVERY === 0 || !("grid" in v));
+	// Steer north: numbered, for this round.
+	inputs.pA = { d: "N", n: 1, r: v.round };
+	run(2);
+	v = rules.view({ seat: "pA" });
+	check("steering turns the rider", v.riders[0].dir === "N" && v.riders[0].r === at.r - 1, JSON.stringify(v.riders[0]));
+	inputs.pA = { d: "S", n: 2, r: v.round };
+	run(2);
+	check("a reversal is refused", rules.view({ seat: "pA" }).riders[0].dir === "N");
+	inputs.pA = { d: "E", n: 2, r: v.round };
+	run(2);
+	check("the same press is not taken twice", rules.view({ seat: "pA" }).riders[0].dir === "N");
+	inputs.pA = { d: "E", n: 3, r: v.round + 1 };
+	run(2);
+	check("a press from another round is ignored", rules.view({ seat: "pA" }).riders[0].dir === "N");
+	// The person rides into the top wall; the bots play it out.
+	run(4000);
+	v = rules.view({ seat: "pA" });
+	check("the round ends by itself", v.decided && !v.racing, JSON.stringify({ step: v.step }));
+	const r = rules.result();
+	check("the result: the last rider moving first", r?.kind === "ffa" && (v.winner === null ? r.ranking.length === 1 : r.ranking[0][0] === v.winner), JSON.stringify(r));
+	check("the winner's win is counted", v.winner === null || v.riders.find((x) => x.id === v.winner).wins === 1);
+	check("a decided round carries the whole grid", typeof v.grid === "string");
+	const wins = Object.fromEntries(v.riders.map((x) => [x.id, x.wins]));
+	rules.init({ seats, opts: {}, seed: 2, match: 1 });
+	v = rules.view({ seat: null });
+	check("PLAY AGAIN is the next round, wins carried", v.round === 2 && v.countdown === 4 && v.riders.every((x) => x.wins === wins[x.id]));
+	run(Math.ceil((4 * 800) / (1000 / HZ)) + 20);
+	const snap = JSON.parse(JSON.stringify(rules.snapshot()));
+	const heir = game();
+	heir.restore({ snapshot: snap });
+	v = heir.view({ seat: null });
+	check("the heir starts an undecided round again", v.countdown === 4 && v.step === 0 && v.round === 3 && v.riders.every((x) => x.wins === wins[x.id]), JSON.stringify({ c: v.countdown, s: v.step, r: v.round }));
+	check("a player who left the party is out of the round", heir.leave({ seat: "pA" }) === true && !heir.view({ seat: null }).riders[0].alive);
+}
+
+{
+	// The clock tightens as before: 10 ms every 120 steps, down to 60.
+	const rules = R.game();
+	rules.init({ seats: [{ id: "bot_1", bot: true }], opts: {}, seed: 1, match: 0 });
+	const inputs = {};
+	let steps = 0;
+	for (let i = 0; i < 4000 && !rules.view({ seat: null }).decided; i++) {
+		const b = rules.bot({ seat: "bot_1" });
+		if (b) inputs.bot_1 = b;
+		rules.tick({ inputs, dt: 1 / R.HZ });
+		steps = rules.view({ seat: null }).step;
+	}
+	const v = rules.view({ seat: null });
+	check("alone, the round ends when you crash", v.decided && v.winner === null, JSON.stringify({ steps }));
+	check("the clock tightens every 120 steps", steps < 120 || v.tickMs === 100 - 10 * Math.min(4, Math.floor(steps / 120)), `${steps} steps, ${v.tickMs} ms`);
 }
 
 console.log(failures ? `\n${failures} failing\n` : "\nall passing\n");

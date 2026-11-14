@@ -2,7 +2,7 @@
 /**
  * test-battleship.mjs — the rules, the audit, and the bot, with no board drawn.
  *
- *   node scripts/test-battleship.mjs
+ *   node battleship/test-battleship.mjs
  *
  * The claim this game rests on is not "the shots land in the right squares".
  * It is that **an unrefereed game can still be honest**: nobody holds anybody
@@ -11,23 +11,12 @@
  * cheats — a fleet that was moved, an answer that was flipped, a sinking that
  * never happened — because a commitment nobody can fail is not a commitment.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-// The platform's runtime (lib/net.js, lib/games.js, ...) these rules load
-// beside the game: a checkout of lokeshmohanty/games, next to this repo by
-// default.
-const PLATFORM = process.env.NEON_PLATFORM
-	? pathToFileURL(process.env.NEON_PLATFORM.replace(/\/?$/, "/"))
-	: new URL("../../games/", import.meta.url);
-
-globalThis.window = globalThis;
-globalThis.location = { href: "file:///x", hash: "", pathname: "/x", search: "" };
-globalThis.history = { replaceState() {} };
-for (const f of ["lib/net.js", "lib/games.js", "lib/secrets.js", "./battleship.js"]) {
-	new Function(readFileSync(new URL(f, f.startsWith("./") ? import.meta.url : PLATFORM), "utf8"))();
-}
-const R = globalThis.NeonArcade.battleshipRules;
+// The rules alone: no document, no platform.
+new Function(readFileSync(new URL("./battleship-rules.js", import.meta.url), "utf8"))();
+const R = globalThis.battleshipRules;
 const { SIZE, FLEET, FLEET_CELLS, key, cellsOf, validateFleet, randomFleet, shipAt, answerShot, fleetSunk, auditAnswers, botTarget } = R;
 
 let failures = 0;
@@ -139,7 +128,19 @@ function honestAnswers(ships, targets) {
 // ---------------------------------------------------------------------------
 console.log("\ncommit and reveal, over the real helper");
 
-{
+// The commitment is the platform's (SDK v2: the shell's `commit` / `verify`,
+// which run lib/secrets.js). Checked against that file when a checkout of
+// lokeshmohanty/games is beside this repo (or at NEON_PLATFORM).
+const PLATFORM = process.env.NEON_PLATFORM
+	? pathToFileURL(process.env.NEON_PLATFORM.replace(/\/?$/, "/"))
+	: new URL("../../games/", import.meta.url);
+if (!existsSync(new URL("lib/secrets.js", PLATFORM))) {
+	console.log("  ·    skipped: no platform checkout for lib/secrets.js");
+} else {
+	globalThis.window = globalThis;
+	globalThis.location = { href: "file:///x", hash: "", pathname: "/x", search: "" };
+	globalThis.history = { replaceState() {} };
+	for (const f of ["lib/net.js", "lib/secrets.js"]) new Function(readFileSync(new URL(f, PLATFORM), "utf8"))();
 	const room = { getMember: () => null, makeAction: () => ({ send() {} }), selfId: "me", isHost: () => true };
 	const secrets = globalThis.NeonArcade.makeSecrets(room);
 	await secrets.ready();

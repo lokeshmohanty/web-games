@@ -7,24 +7,14 @@
  * The one thing a Sudoku must never do is hand out a puzzle with two answers:
  * the player fills it in correctly, the phone says it is wrong, and the race is
  * lost to the generator. So every level is generated many times here and every
- * puzzle is checked to have exactly one solution.
+ * puzzle is checked to have exactly one solution. The race is played here too,
+ * through the same managed rules the platform runs on the host (SDK v2).
  */
 import { readFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
 
-// The platform's runtime, from a checkout of lokeshmohanty/games next to this
-// repo by default.
-const PLATFORM = process.env.NEON_PLATFORM
-	? pathToFileURL(process.env.NEON_PLATFORM.replace(/\/?$/, "/"))
-	: new URL("../../games/", import.meta.url);
-
-globalThis.window = globalThis;
-globalThis.location = { href: "file:///x", hash: "", pathname: "/x", search: "" };
-globalThis.history = { replaceState() {} };
-for (const f of ["lib/net.js", "lib/games.js", "./sudoku.js"]) {
-	new Function(readFileSync(new URL(f, f.startsWith("./") ? import.meta.url : PLATFORM), "utf8"))();
-}
-const R = globalThis.NeonArcade.sudokuRules;
+// The rules alone: no document, no platform.
+new Function(readFileSync(new URL("./sudoku-rules.js", import.meta.url), "utf8"))();
+const R = globalThis.sudokuRules;
 const {
 	CELLS, PEERS, UNITS, LEVELS, LEVEL_IDS, countSolutions, solve, solvesWithSingles, generate, dailyPuzzle, rngFrom,
 	toText, fromText, today, clock, standings, clearNotes,
@@ -146,6 +136,88 @@ console.log("\nthe race");
 	check("alone, the solver is the ranking", JSON.stringify(standings(["a"], { a: 51 }, "a")) === '[["a"]]');
 	check("bots get slower as it gets harder",
 		LEVEL_IDS.every((l, i) => !i || LEVELS[l].botMs > LEVELS[LEVEL_IDS[i - 1]].botMs));
+}
+
+// ---------------------------------------------------------------------------
+console.log("\nthe race, as the platform runs it");
+
+{
+	let t = 1_000_000;
+	const host = "pA";
+	const rules = R.race({ host: () => host, now: () => t, random: () => 0.5 });
+	const seats = [{ id: "pA", bot: false }, { id: "pB", bot: false }, { id: "bot_1", bot: true }];
+	rules.init({ seats, opts: {}, seed: 1, match: 0 });
+	let v = rules.view({ seat: "pA" });
+	check("a race opens on picking a puzzle", v.phase === "pick" && !v.puzzle);
+	check("nobody is on turn while picking", rules.turn().length === 0);
+	check("only the host deals", rules.apply({ action: { start: "new", level: "easy" }, by: "pB" }) === "only the host deals");
+	check("the host deals", rules.apply({ action: { start: "daily", level: "medium" }, by: "pA" }) == null);
+	v = rules.view({ seat: "pB" });
+	const total = R.empties(v.puzzle);
+	check("everyone sees the same puzzle, and today's", v.phase === "play" && v.daily === R.today(new Date(t)) && v.puzzle === R.toText(R.dailyPuzzle(v.daily, "medium").puzzle));
+	check("the view carries no bot clocks", !("due" in v) && !("bots" in v));
+	check("a bot is the one on turn", JSON.stringify(rules.turn()) === '["bot_1"]');
+	check("a bot polled early fills nothing", rules.apply({ action: rules.bot({ seat: "bot_1" }), by: "bot_1" }) == null && !rules.view({ seat: null }).progress.bot_1);
+	t += LEVELS.medium.botMs * 1.01; // 0.6 + 0.5·0.8 = 1.0 of the pace
+	rules.apply({ action: rules.bot({ seat: "bot_1" }), by: "bot_1" });
+	check("a bot polled once due fills one cell", rules.view({ seat: null }).progress.bot_1 === 1);
+	check("progress from an old race is refused", typeof rules.apply({ action: { progress: { match: 0, right: 3 } }, by: "pB" }) === "string");
+	check("a player cannot speak for a bot", typeof rules.apply({ action: { progress: { match: v.match, right: 3 } }, by: "bot_1" }) === "string");
+	rules.apply({ action: { progress: { match: v.match, right: 999 } }, by: "pB" });
+	check("progress is capped at the empty cells", rules.view({ seat: null }).progress.pB === total);
+	check("all right without a time is not a finish", rules.view({ seat: null }).phase === "play" && rules.result() === null);
+	const snap = rules.snapshot();
+	rules.apply({ action: { progress: { match: v.match, right: total, ms: 61_000 } }, by: "pB" });
+	v = rules.view({ seat: "pA" });
+	check("filling it all in wins", v.phase === "over" && v.winner === "pB" && v.times.pB === 61_000);
+	const r = rules.result();
+	check("the result: the winner first, then by cells right", r?.kind === "ffa" && JSON.stringify(r.ranking) === '[["pB"],["bot_1"],["pA"]]', JSON.stringify(r));
+	check("nobody is on turn once it is over", rules.turn().length === 0);
+	// The heir carries on from the host's copy, a few seconds later.
+	const heir = R.race({ host: () => "pB", now: () => t + 5000, random: () => 0.5 });
+	heir.restore({ snapshot: JSON.parse(JSON.stringify(snap)) });
+	const hv = heir.view({ seat: "pA" });
+	check("the heir restores the race mid-way", hv.phase === "play" && hv.progress.pB === total && hv.puzzle === v.puzzle);
+	check("and its bots carry on", JSON.stringify(heir.turn()) === '["bot_1"]');
+	rules.init({ seats, opts: {}, seed: 2, match: 1 });
+	check("PLAY AGAIN goes back to picking, counting on", rules.view({ seat: null }).phase === "pick" && rules.view({ seat: null }).match === v.match);
+	check("resuming takes the host's own puzzle", rules.apply({ action: { start: "resume", resume: { puzzle: v.puzzle, solution: v.solution, level: "hard", daily: null } }, by: "pA" }) == null
+		&& rules.view({ seat: null }).puzzle === v.puzzle && rules.view({ seat: null }).level === "hard");
+	check("a bad resume is refused", (() => {
+		rules.init({ seats, opts: {}, seed: 3, match: 2 });
+		return typeof rules.apply({ action: { start: "resume", resume: { puzzle: "12", solution: v.solution, level: "hard" } }, by: "pA" }) === "string";
+	})());
+}
+
+{
+	// Alone: played, with the time.
+	const t = 5_000;
+	const rules = R.race({ host: () => "me", now: () => t });
+	rules.init({ seats: [{ id: "me", bot: false }], opts: {}, seed: 1, match: 0 });
+	rules.apply({ action: { start: "new", level: "easy" }, by: "me" });
+	const v = rules.view({ seat: "me" });
+	rules.apply({ action: { progress: { match: v.match, right: R.empties(v.puzzle), ms: 125_400 } }, by: "me" });
+	const r = rules.result();
+	check("alone, the result is played, with the time in seconds", r?.kind === "coop" && JSON.stringify(r.ranking) === '[["me"]]' && r.scores?.me === 125, JSON.stringify(r));
+}
+
+{
+	// A bot races to the end on its own.
+	let t = 0;
+	const rules = R.race({ host: () => "me", now: () => t });
+	rules.init({ seats: [{ id: "me", bot: false }, { id: "bot_2", bot: true }], opts: {}, seed: 1, match: 0 });
+	rules.apply({ action: { start: "new", level: "easy" }, by: "me" });
+	const total = R.empties(rules.view({ seat: "me" }).puzzle);
+	let polls = 0;
+	while (rules.view({ seat: null }).phase === "play" && polls < 5000) {
+		t += 850; // the platform's poll, roughly
+		rules.apply({ action: { bot: 1 }, by: "bot_2" });
+		polls++;
+	}
+	const v = rules.view({ seat: null });
+	const perCell = v.times.bot_2 / total;
+	check("a bot finishes a race by itself", v.winner === "bot_2", `${polls} polls`);
+	check("at the difficulty's pace, give or take", perCell > LEVELS.easy.botMs * 0.8 && perCell < LEVELS.easy.botMs * 1.2, `${Math.round(perCell)}ms a cell`);
 }
 
 // ---------------------------------------------------------------------------

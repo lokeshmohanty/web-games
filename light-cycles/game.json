@@ -1,5 +1,8 @@
 {
-  "sdk": 1,
+  "sdk": 2,
+  "state": "managed",
+  "tick": 20,
+  "viewRate": 20,
   "id": "light-cycles",
   "name": "LIGHT CYCLES",
   "title": "Light Cycles",
