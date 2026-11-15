@@ -250,6 +250,16 @@
 		const sec = Math.floor(ms / 1000);
 		return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
 	};
+	/**
+	 * A solo round's score: the race time ridden, in seconds to the tenth,
+	 * rounded down (23.4). Tenths of a second, not steps, because a step gets
+	 * shorter as the round goes on (100 ms down to 60), so a count of steps is
+	 * not a time — and a time can be checked against the arcade's own clock:
+	 * a score can never be more than the seconds since its run began (the
+	 * arcade's leaderboard, docs/accounts.md there). Race time only: the
+	 * countdown is not riding.
+	 */
+	const survived = (ms) => Math.floor(ms / 100) / 10;
 	const reversal = (a, b) => ORDER.indexOf(a) === (ORDER.indexOf(b) + 2) % 4;
 	const gridText = (grid) => Array.from(grid).join("");
 
@@ -379,6 +389,9 @@
 			 * Each round is a result: the last rider moving, then everyone else.
 			 * Nobody left standing gets v1's own words on the end card, not the
 			 * derived "YOU WIN" (alone) or "DRAW"; a winner's card is derived.
+			 * Riding alone, the round also has a score — the time survived
+			 * (survived()) — and says so in the card's details; that score is
+			 * what a solo round ranks by.
 			 */
 			result() {
 				if (!s.decided) return null;
@@ -386,8 +399,18 @@
 				const rest = ids.filter((id) => id !== s.winner);
 				const ranking = s.winner === null ? [ids] : [[s.winner], rest].filter((x) => x.length);
 				if (s.winner !== null) return { kind: "ffa", ranking };
-				const title = ids.length === 1 ? `CRASHED AFTER ${clock(s.raceMs)}` : "EVERYONE CRASHED";
-				return { kind: "ffa", ranking, title };
+				if (ids.length > 1) return { kind: "ffa", ranking, title: "EVERYONE CRASHED" };
+				const secs = survived(s.raceMs);
+				return {
+					kind: "ffa",
+					ranking,
+					title: `CRASHED AFTER ${clock(s.raceMs)}`,
+					scores: { [ids[0]]: secs },
+					details: [
+						{ label: "Time survived", value: `${secs.toFixed(1)} s` },
+						{ label: "Squares ridden", value: s.step },
+					],
+				};
 			},
 
 			/** A rider whose player left the party is out of the round. */
@@ -421,5 +444,5 @@
 		};
 	}
 
-	globalThis.lightCycleRules = { COLS, ROWS, ORDER, STEP, SPAWNS, HZ, KEY_EVERY, idx, inBounds, openSpace, openNeighbours, distancesFrom, territory, botDirection, advance, game };
+	globalThis.lightCycleRules = { COLS, ROWS, ORDER, STEP, SPAWNS, HZ, COUNT_MS, KEY_EVERY, idx, inBounds, openSpace, openNeighbours, distancesFrom, territory, botDirection, advance, survived, game };
 })();
