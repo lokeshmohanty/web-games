@@ -401,8 +401,51 @@ console.log("\nno bubble before its time (review, 2026-11-15)");
 	const later = t + 240;
 	const p = position(b, later);
 	g.apply({ action: tapAt(p.x, p.y, later), by: "p2" });
-	check("a guest's clock is never ahead: its tap is judged at the host's time (and misses here)", g.snapshot().bubbles.length === 1 && g.snapshot().stats.misses.p2 === 1);
+	check("a guest's tap is judged at most one tick ahead of the host's clock (240 ms ahead misses here)", g.snapshot().bubbles.length === 1 && g.snapshot().stats.misses.p2 === 1);
 	check("the host's own tap 240 ms ahead, centred where its phone drew it, pops it", g.apply({ action: tapAt(p.x, p.y, later), by: "host" }) == null && g.view({ seat: null }).scores.host === 30);
+}
+
+{
+	// A guest's phone runs its clock on between views while the host's moves
+	// once a tick, so its honest tap is ahead of the host's clock by up to a
+	// tick less the round trip. Judged at the host's clock instead, a tap on a
+	// quick golden bubble late in the round missed one time in six (re-review,
+	// 2026-11-15, repro4). Each phone below taps a random point of the bubble
+	// as drawn, RTT 20 ms, the tap landing at a random moment of the tick.
+	const g = start([person("host"), person("p2")]);
+	const base = clone(g.snapshot());
+	const rng = rngFrom(77);
+	let hits = 0;
+	const N = 600;
+	for (let i = 0; i < N; i++) {
+		const t = 55_000;
+		const dur = Math.round(riseMs(t) * R.GOLDEN.speed);
+		const b = { id: 1, k: "g", s: null, team: null, r: R.GOLDEN.r, pts: 50, born: t - dur * (0.2 + 0.6 * rng()), dur, x0: 0.5, amp: 0.02 + rng() * 0.04, freq: 1 + rng() * 1.5, ph: rng() * 6.28 };
+		const ahead = Math.max(0, rng() * 100 - 20);
+		const p = position(b, t + ahead);
+		const a = rng() * Math.PI * 2;
+		const d = Math.sqrt(rng()) * b.r;
+		g.restore({ snapshot: { ...clone(base), t, bubbles: [b], gone: [], spawnAt: ROUND_MS, lastT: {} } });
+		g.apply({ action: tapAt(p.x + Math.cos(a) * d, p.y + Math.sin(a) * d * R.FIELD_ASPECT, t + ahead), by: "p2" });
+		if (!g.snapshot().bubbles.length) hits++;
+	}
+	check(`a guest's honest tap on a golden bubble in the frenzy lands (${hits} of ${N}, RTT 20 ms)`, hits === N);
+}
+
+{
+	// The host's phone runs up to 250 ms ahead: a bubble born after the host's
+	// last tick, already on its screen, is its to pop; a guest claiming the
+	// same time is held to one tick and cannot reach it.
+	const g = start([person("host"), person("p2")]);
+	for (let i = 0; i < 400; i++) g.tick({ inputs: {}, dt });
+	const t = g.snapshot().t;
+	const dur = Math.round(riseMs(t) * R.GOLDEN.speed);
+	const b = { id: 1, k: "g", s: null, team: null, r: R.GOLDEN.r, pts: 50, born: t + 100, dur, x0: 0.5, amp: 0, freq: 1, ph: 0 };
+	place(g, [b]);
+	const p = position(b, t + 250);
+	g.apply({ action: tapAt(p.x, p.y, t + 250), by: "p2" });
+	check("a guest cannot reach a bubble born after the host's clock by claiming 250 ms ahead", g.snapshot().bubbles.length === 1);
+	check("…the host's own phone, drawing it 250 ms ahead and surfaced, pops it", g.apply({ action: tapAt(p.x, p.y, t + 250), by: "host" }) == null && g.view({ seat: null }).scores.host === 50);
 }
 
 {
@@ -535,7 +578,21 @@ console.log("\nresults: alone, leavers, emptied sides");
 	g.restore({ snapshot: s });
 	g.tick({ inputs: {}, dt });
 	const r = g.result();
-	check("Team B emptied but ahead: kind 'teams', titled TEAM B WINS, only who is here placed", r?.kind === "teams" && r.title === "TEAM B WINS" && JSON.stringify(r.ranking) === '[["host"]]' && r.details[0].value === "Teams", JSON.stringify(r && { kind: r.kind, title: r.title, ranking: r.ranking }));
+	check("Team B emptied but ahead: kind 'teams', titled TEAM B WINS, B's place kept empty first", r?.kind === "teams" && r.title === "TEAM B WINS" && JSON.stringify(r.ranking) === '[[],["host"]]' && r.details[0].value === "Teams", JSON.stringify(r && { kind: r.kind, title: r.title, ranking: r.ranking }));
+}
+
+{
+	// And the other way: the side that empties was behind.
+	const g = start([person("host", "A"), person("b1", "B")], "teams");
+	place(g, [still(g, 1, 0.5, 0.5)]);
+	g.apply({ action: tapOn(g, g.snapshot().bubbles[0]), by: "host" });
+	g.leave({ seat: "b1" });
+	const s = clone(g.snapshot());
+	s.t = ROUND_MS;
+	g.restore({ snapshot: s });
+	g.tick({ inputs: {}, dt });
+	const r = g.result();
+	check("Team B emptied and behind: TEAM A WINS, B's place kept empty last", r?.kind === "teams" && r.title === "TEAM A WINS" && JSON.stringify(r.ranking) === '[["host"],[]]', JSON.stringify(r && { title: r.title, ranking: r.ranking }));
 }
 
 {

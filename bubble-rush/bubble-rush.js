@@ -64,6 +64,12 @@ style.textContent = `
 		gap: 14px; padding: 20px; box-sizing: border-box; text-align: center; border-radius: 10px;
 		background: color-mix(in oklch, var(--bg) 82%, transparent); }
 	.br-setup[hidden] { display: none; }
+	/* A phone held sideways: the 1 : 2 field would be a sliver, so say so instead. */
+	.br-turn { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+		gap: 6px; padding: 12px; box-sizing: border-box; text-align: center; background: var(--bg); color: var(--ink); }
+	.br-turn[hidden] { display: none; }
+	.br-turn strong { font-family: var(--font-display); font-size: 1.3rem; color: var(--accent); letter-spacing: 0.04em; }
+	.br-turn span { color: var(--ink-2); }
 	.br-setup h2 { margin: 0; font-family: var(--font-display); font-size: 1.6rem; letter-spacing: 0.04em; color: var(--accent); }
 	.br-setup p { margin: 0; max-width: 30em; color: var(--ink-2); line-height: 1.4; }
 	.br-modes { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
@@ -104,7 +110,11 @@ const setup = el("div", "br-setup");
 setup.hidden = true;
 setup.setAttribute("role", "dialog");
 setup.setAttribute("aria-label", "Bubble Rush: the next round");
-field.append(canvas, setup);
+const turn = el("div", "br-turn");
+turn.hidden = true;
+turn.setAttribute("role", "status");
+turn.append(el("strong", null, "TURN YOUR PHONE UPRIGHT"), el("span", null, "The field is tall: Bubble Rush is played held upright."));
+field.append(canvas, setup, turn);
 stage.append(hud, field);
 document.body.append(stage);
 const c2d = canvas.getContext("2d");
@@ -180,9 +190,18 @@ function bubbleColour(b) {
 const size = () => ({ w: canvas.clientWidth, h: canvas.clientHeight });
 
 /** Size the field: the largest 1 : 2 box the room allows, in whole CSS pixels. */
+// Narrower than this, a small bubble is a few pixels across with its slack.
+const MIN_FIELD_W = 300;
+/** A phone held sideways: landscape, and its short side short. Tablets and desktops are not. */
+const sideways = () => innerWidth > innerHeight && Math.min(innerWidth, innerHeight) < 500;
+
 function fit() {
 	const room = { w: field.clientWidth - 4, h: field.clientHeight - 4 }; // less the canvas's 2px border
 	const w = Math.max(1, Math.floor(Math.min(room.w, room.h * R.FIELD_ASPECT)));
+	// A phone on its side would get a sliver of a field: ask for it upright
+	// (the round goes on; the canvas is covered until it is turned).
+	const upright = !(w < MIN_FIELD_W && sideways());
+	if (turn.hidden !== upright) turn.hidden = upright;
 	const h = Math.max(1, Math.floor(w / R.FIELD_ASPECT));
 	if (canvas.style.width !== `${w}px`) canvas.style.width = `${w}px`;
 	if (canvas.style.height !== `${h}px`) canvas.style.height = `${h}px`;
@@ -380,7 +399,7 @@ function renderHud() {
 		const b = side("B");
 		const ts = view.avg ?? R.teamScores(view.scores, a, b);
 		const [ta, tb] = R.averages(ts.A, ts.B);
-		board.replaceChildren(chip(`TEAM A ${ta} (${a.length})`, "accent", teamOf(mine) === "A"), chip(`TEAM B ${tb} (${b.length})`, "accent2", teamOf(mine) === "B"));
+		board.replaceChildren(chip(`TEAM A ${ta} (${view.avgOf?.A ?? a.length})`, "accent", teamOf(mine) === "A"), chip(`TEAM B ${tb} (${view.avgOf?.B ?? b.length})`, "accent2", teamOf(mine) === "B"));
 	} else {
 		const ids = seats().map(([id]) => id);
 		const order = [...ids].sort((x, y) => (view.scores[y] ?? 0) - (view.scores[x] ?? 0));
@@ -497,6 +516,10 @@ function onView(next) {
 	// Joined mid-round, or a new host carrying on from an older copy (its
 	// count is behind this phone's): no burst of old pops, none missed after.
 	if (lastSeq < 0 || next.seq < lastSeq) lastSeq = next.seq;
+	// After a reload this phone counts its taps from 0 again while the host
+	// remembers the last it judged: carry on from there, or a new tap's bubble
+	// would be "settled" by an old acknowledgement and flicker back.
+	if ((next.ack ?? 0) > tapN) tapN = next.ack;
 	if (view && view.phase !== next.phase) clockT = next.t;
 	view = next;
 	recvAt = performance.now();
@@ -543,6 +566,7 @@ arcade.debug = () => {
 		you: mine,
 		host: arcade.isHost(),
 		paused,
+		turnUpright: !turn.hidden,
 		scores: { ...(view?.scores ?? {}) },
 		teamScores: view?.avg ?? R.teamScores(view?.scores ?? {}, side("A"), side("B")),
 		popped: { ...(view?.popped ?? {}) },

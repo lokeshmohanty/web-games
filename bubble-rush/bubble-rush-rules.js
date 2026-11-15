@@ -44,13 +44,13 @@
 // round time it was drawing — never which bubble it thinks it hit. The host
 // puts every bubble where it was at that time and takes the nearest one under
 // the finger, a fingertip's slack around it. The time is trusted only within
-// a window: a guest's clock is behind the host's (the view's trip out, the
-// tap's trip back), never ahead, and only the host's own seat, whose clock
-// runs on between ticks, may be a little ahead. A player's taps never go back
-// in time, a bubble not yet born on the host or still below the field cannot
-// be hit (the views carry bubbles before they surface: the review found them
-// sniped before birth), a tap on a bubble someone popped first is refused
-// without penalty, and a tap on empty field is a miss.
+// a window: up to half a second behind the host's clock (the view's trip out,
+// the tap's trip back), and at most a tick ahead (every phone runs its clock
+// on between views; the host's own seat a little more). A player's taps
+// never go back in time, a bubble not yet born or still below the field at
+// that time cannot be hit (the views carry bubbles before they surface: the
+// review found them sniped before birth), a tap on a bubble someone popped
+// first is refused without penalty, and a tap on empty field is a miss.
 
 (() => {
 	const ROUND_MS = 60_000;
@@ -78,9 +78,14 @@
 
 	// Taps, judged on the host.
 	const LAG_MS = 500; // how far behind the host's clock a tap may say it was made
-	// And ahead, for the host's own seat only: its phone carries the clock on
-	// between ticks, up to bubble-rush.js EXTRA_MS (250) past the last view.
+	// And ahead. Every phone carries the clock on between views while the
+	// host's moves once a tick, so a tap made late in a tick is ahead of the
+	// host's clock by up to a tick less the round trip: a guest may claim one
+	// tick ahead (judged at s.t, a centred tap on a quick golden bubble missed
+	// one time in six — re-review, 2026-11-15). The host's own seat may claim
+	// up to bubble-rush.js EXTRA_MS (250), how far its phone runs on.
 	const AHEAD_MS = 250;
+	const GUEST_AHEAD_MS = 1000 / HZ;
 	const SLACK = 0.03; // a fingertip is not a point: a fraction of the field's width (~11 px on a phone)
 	const EDGE = 0.01; // how far outside the field a tap may land and still count as on it
 	const TAPS_PER_TICK = 3; // per player: a double tap is fine, a flood is not
@@ -408,13 +413,22 @@
 			if ((s.taps[by] ?? 0) >= TAPS_PER_TICK) return "too fast";
 			s.taps[by] = (s.taps[by] ?? 0) + 1;
 			// When the phone drew what was tapped: trusted only within the
-			// window — behind the host's clock for a guest, a little ahead for
-			// the host's own seat — and never earlier than this player's last tap.
-			const ahead = isHost(by) ? AHEAD_MS : 0;
+			// window — up to LAG_MS behind the host's clock, a tick ahead for a
+			// guest (the host's own seat: AHEAD_MS) — and never earlier than this
+			// player's last tap.
+			//
+			// Accepted, as lag compensation: a modified client may pick any time
+			// in that window for each tap (its choice only moves forward), so it
+			// can aim at where a bubble was up to half a second ago. It cannot
+			// name a bubble, reach one that was never under the finger in that
+			// window, or reach one before it is born and on the field.
+			const ahead = isHost(by) ? AHEAD_MS : GUEST_AHEAD_MS;
 			const when = Math.max(clamp(t, Math.max(0, s.t - LAG_MS), s.t + ahead), s.lastT[by] ?? -Infinity);
 			s.lastT[by] = when;
-			// Only bubbles born on the host by now: the views carry them earlier.
-			const live = s.bubbles.filter((b) => b.born <= s.t);
+			// Only bubbles born by that time, and (hitTest) on the field then:
+			// the views carry bubbles before they surface. An unborn bubble is
+			// in reach only if it surfaces within a tick of its birth.
+			const live = s.bubbles.filter((b) => b.born <= when);
 			const gone = s.gone.map((g) => g.b);
 			const b = hitTest([...live, ...gone], x, y, when);
 			if (b && live.includes(b)) return void pop(by, b);
@@ -536,7 +550,7 @@
 					mine: seat ? { popped: s.stats.popped[seat] ?? 0, misses: s.stats.misses[seat] ?? 0, bombs: s.stats.bombs[seat] ?? 0 } : null,
 					popped: { ...s.stats.popped },
 					// Team averages, leavers' scores included (they still count for their side).
-					...(s.mode === "teams" ? { avg: teamScores(s.scores, sideAll("A"), sideAll("B")) } : {}),
+					...(s.mode === "teams" ? { avg: teamScores(s.scores, sideAll("A"), sideAll("B")), avgOf: { A: sideAll("A").length, B: sideAll("B").length } } : {}),
 				};
 			},
 
@@ -587,9 +601,12 @@
 					details.push({ label: "Team B average", value: `${tb} (${sideAll("B").length})` });
 					const first = ts.A > ts.B ? "A" : ts.B > ts.A ? "B" : null;
 					const here = { A: side("A"), B: side("B") };
-					const r = (first ? [here[first], here[first === "A" ? "B" : "A"]] : [[...here.A, ...here.B]]).filter((x) => x.length);
+					// Each side keeps its place even when everyone on it has left (an
+					// empty slot): one slot would read as a draw, or as a win for the
+					// side still here (lib/stats.js, the card's series).
+					const r = first ? [here[first], here[first === "A" ? "B" : "A"]] : [[...here.A, ...here.B]];
 					// Both sides still here: the card says YOU WIN / X & Y WIN itself.
-					// A side that has emptied is not in the places, so the title says who won.
+					// A side that has emptied has nobody to name, so the title says who won.
 					const title = !first ? "A TIE" : here.A.length && here.B.length ? null : `TEAM ${first} WINS`;
 					return { kind: "teams", ranking: r, scores, ...(title ? { title } : {}), details };
 				}
@@ -619,7 +636,7 @@
 	}
 
 	globalThis.bubbleRushRules = {
-		ROUND_MS, COUNT_MS, FRENZY_MS, HZ, FIELD_ASPECT, SIZES, GOLDEN, BOMB, STREAK_MS, STUN_MS, MAX_MULT, LAG_MS, AHEAD_MS, SLACK, EDGE, LEAD_MS,
+		ROUND_MS, COUNT_MS, FRENZY_MS, HZ, FIELD_ASPECT, SIZES, GOLDEN, BOMB, STREAK_MS, STUN_MS, MAX_MULT, LAG_MS, AHEAD_MS, GUEST_AHEAD_MS, SLACK, EDGE, LEAD_MS,
 		BOT_EVERY_MS, BOT_REACT_MS, BOT_HESITATE, BOT_HESITATE_MS, TAPS_PER_TICK,
 		rngFrom, riseMs, bombChance, spawnInterval, makeBubble, pack, unpack, progress, position, alive, surfaced, multiplier, popPoints,
 		hitTest, teamScores, averages, ranking, teamRanking, botPick, game,
