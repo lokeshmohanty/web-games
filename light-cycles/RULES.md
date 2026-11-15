@@ -12,6 +12,7 @@ Ride around the arena leaving a wall behind you, and never hit a wall. The last 
 
 ## Scoring
 - Each round you win adds one to your count, shown beneath the arena. Wins carry over between rounds.
+- Riding alone, your score is the time you survived, in seconds to the tenth (from GO; the countdown does not count). Signed in, it can go on the arcade's leaderboard.
 
 ## Winning
 - The last rider moving wins the round.

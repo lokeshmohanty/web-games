@@ -334,6 +334,7 @@ console.log("\nthe round, as the platform runs it");
 	check("the result: the last rider moving first", r?.kind === "ffa" && (v.winner === null ? r.ranking.length === 1 : r.ranking[0][0] === v.winner), JSON.stringify(r));
 	check("the winner's win is counted", v.winner === null || v.riders.find((x) => x.id === v.winner).wins === 1);
 	check("the end card: a winner's is derived, nobody standing says so", v.winner === null ? r.title === "EVERYONE CRASHED" : !("title" in r), JSON.stringify(r));
+	check("with other riders the result carries no score and no details (unchanged)", !("scores" in r) && !("details" in r), JSON.stringify(r));
 	check("a decided round carries the whole grid", typeof v.grid === "string");
 	const wins = Object.fromEntries(v.riders.map((x) => [x.id, x.wins]));
 	rules.init({ seats, opts: {}, seed: 2, match: 1 });
@@ -365,6 +366,37 @@ console.log("\nthe round, as the platform runs it");
 	const ridden = Math.floor((rules.snapshot().raceMs) / 1000);
 	check("alone, the end card says how long you rode", rules.result()?.title === `CRASHED AFTER ${Math.floor(ridden / 60)}:${String(ridden % 60).padStart(2, "0")}` && ridden > 0, rules.result()?.title);
 	check("the clock tightens every 120 steps", steps < 120 || v.tickMs === 100 - 10 * Math.min(4, Math.floor(steps / 120)), `${steps} steps, ${v.tickMs} ms`);
+	const raceMs = rules.snapshot().raceMs;
+	const r = rules.result();
+	const secs = r?.scores?.bot_1;
+	check("alone, the result's score is the race time survived, in seconds to the tenth, rounded down", secs === Math.floor(raceMs / 100) / 10 && secs === R.survived(raceMs) && Number.isInteger(Math.round(secs * 10)) && Math.abs(secs * 10 - Math.round(secs * 10)) < 1e-9 && secs <= raceMs / 1000, JSON.stringify({ secs, raceMs }));
+	check("…and the end card's details say it, with the squares ridden", r?.details?.[0]?.label === "Time survived" && r.details[0].value === `${secs.toFixed(1)} s` && r.details[1]?.value === steps, JSON.stringify(r?.details));
+}
+
+{
+	// The arcade's leaderboard checks a solo score against its own clock: the
+	// score can never pass the wall time since the round began. Played on
+	// ticks, wall time is at least ticks / HZ, and the countdown (4 beats) is
+	// in it but never in the score.
+	const rules = R.game();
+	rules.init({ seats: [{ id: "pA", bot: false }], opts: {}, seed: 1, match: 0 });
+	let ticks = 0;
+	const inputs = {};
+	// Turn back into your own trail at once — up, left, down, one square
+	// apart — the shortest round there is.
+	const presses = ["N", "W", "S"];
+	for (; ticks < 4000 && !rules.view({ seat: null }).decided; ticks++) {
+		const v = rules.view({ seat: null });
+		const n = v.step; // one press after each of the first three squares
+		if (v.racing && n >= 1 && n <= presses.length) inputs.pA = { d: presses[n - 1], r: v.round, n };
+		rules.tick({ inputs, dt: 1 / R.HZ });
+	}
+	const r = rules.result();
+	const secs = r?.scores?.pA;
+	const wall = ticks / R.HZ;
+	check("the shortest solo round: a crash into your own trail a few squares after GO", rules.view({ seat: null }).decided && rules.snapshot().step <= 6, JSON.stringify({ step: rules.snapshot().step, secs }));
+	check("…its score is under a second", typeof secs === "number" && secs < 1, String(secs));
+	check("…the round took at least the countdown, which the score leaves out", wall >= (4 * R.COUNT_MS) / 1000 && secs <= wall - (4 * R.COUNT_MS) / 1000 + 1e-9, JSON.stringify({ wall, secs }));
 }
 
 console.log(failures ? `\n${failures} failing\n` : "\nall passing\n");
