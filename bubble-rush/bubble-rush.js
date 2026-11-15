@@ -195,7 +195,9 @@ const size = () => ({ w: canvas.clientWidth, h: canvas.clientHeight });
  * Upright is never asked about: a real portrait phone's browser leaves a field
  * of about 270–360 px, which plays. Tablets and desktops are not phones.
  */
-const sideways = () => innerWidth > innerHeight && Math.min(innerWidth, innerHeight) < 500;
+// A phone held sideways: a touch screen, landscape, short side under 500 px.
+// Never a desktop window that happens to be short and wide.
+const sideways = () => matchMedia("(pointer: coarse)").matches && innerWidth > innerHeight && Math.min(innerWidth, innerHeight) < 500;
 
 /** Size the field: the largest 1 : 2 box the room allows, in whole CSS pixels. */
 function fit() {

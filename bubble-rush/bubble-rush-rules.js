@@ -570,7 +570,8 @@
 			/**
 			 * The round's places. Teams: the side with the higher average first,
 			 * each side one slot (kind "teams"), leavers counted in their side's
-			 * average but out of the places; free-for-all: by score, ties sharing
+			 * average but out of the places (except a tie, whose one slot holds
+			 * everyone who played); free-for-all: by score, ties sharing
 			 * (kind "ffa"); a round begun alone: played, with the score (kind
 			 * "coop", never below zero: the arcade's server refuses that).
 			 */
