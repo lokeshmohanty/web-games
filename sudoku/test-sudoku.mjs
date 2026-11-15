@@ -54,7 +54,7 @@ console.log("\nthe difficulties");
 
 for (const level of LEVEL_IDS) {
 	const spec = LEVELS[level];
-	const rng = rngFrom(1234 + level.length);
+	const key = `test:${level}`;
 	const runs = level === "expert" ? 6 : 10;
 	let unique = 0;
 	let solutionsValid = 0;
@@ -63,7 +63,7 @@ for (const level of LEVEL_IDS) {
 	const clues = [];
 	const t0 = performance.now();
 	for (let i = 0; i < runs; i++) {
-		const { puzzle, solution } = generate(level, rng);
+		const { puzzle, solution } = generate(level, `${key}:${i}`);
 		if (countSolutions(puzzle) === 1) unique++;
 		if (valid(solution)) solutionsValid++;
 		if (puzzle.every((d, j) => !d || solution[j] === d)) consistent++;
@@ -87,9 +87,9 @@ for (const level of LEVEL_IDS) {
 {
 	// Fewer clues as it gets harder, on average.
 	const avg = (level) => {
-		const rng = rngFrom(99);
+		const key = `test:clues:${level}`;
 		let n = 0;
-		for (let i = 0; i < 5; i++) n += generate(level, rng).puzzle.filter(Boolean).length;
+		for (let i = 0; i < 5; i++) n += generate(level, `${key}:${i}`).puzzle.filter(Boolean).length;
 		return n / 5;
 	};
 	const a = LEVEL_IDS.map(avg);
@@ -223,8 +223,27 @@ console.log("\nthe race, as the platform runs it");
 	const v = rules.view({ seat: "me" });
 	rules.apply({ action: { progress: { match: v.match, right: R.empties(v.puzzle), ms: 95_000, grid: v.solution } }, by: "me" });
 	const r = rules.result();
-	check("alone, the result carries the proof: how it was dealt and the solved grid",
-		r?.proof?.start === "new" && r.proof.level === "easy" && r.proof.daily === null && r.proof.grid === v.solution, JSON.stringify(r?.proof));
+	check("alone, the result carries the proof: how it was dealt, the attempt, the solved grid",
+		r?.proof?.start === "new" && r.proof.level === "easy" && r.proof.daily === null && r.proof.attempt === R.puzzleFor(99, "easy").attempt && r.proof.grid === v.solution, JSON.stringify(r?.proof));
+
+	// Each attempt has its own stream: its solved grid is solutionFor(key,
+	// attempt) whatever the attempts before it drew — all the server computes.
+	let same = 0;
+	let total = 0;
+	const used = new Set();
+	for (const level of LEVEL_IDS) {
+		for (let seed = 0; seed < (level === "expert" ? 15 : 25); seed++) {
+			const g = R.puzzleFor(seed, level);
+			used.add(g.attempt);
+			total++;
+			if (toText(g.solution) === toText(R.solutionFor(R.seedKey(seed, level), g.attempt))) same++;
+		}
+	}
+	check("the dealt grid is solutionFor(seed key, attempt), every level", same === total, `${same}/${total}`);
+	check("attempts are integers within ATTEMPTS", [...used].every((a) => Number.isInteger(a) && a >= 0 && a < R.ATTEMPTS), [...used].join(","));
+	const d = R.dailyPuzzle("2026-11-15", "hard");
+	check("…and the daily's is solutionFor(daily key, attempt)", toText(d.solution) === toText(R.solutionFor(R.dailyKey("2026-11-15", "hard"), d.attempt)));
+	check("another attempt is another grid", toText(R.solutionFor(R.seedKey(5, "hard"), 0)) !== toText(R.solutionFor(R.seedKey(5, "hard"), 1)));
 
 	const race = R.race({ host: () => "pA", now: () => 5_000 });
 	race.init({ seats: [{ id: "pA", bot: false }, { id: "pB", bot: false }], opts: {}, seed: 7, match: 0 });

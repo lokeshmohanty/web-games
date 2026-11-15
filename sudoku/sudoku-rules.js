@@ -116,6 +116,34 @@
 		return count;
 	}
 
+	/**
+	 * A generator's random stream: one per puzzle key and attempt, so what an
+	 * attempt deals depends on (key, attempt) alone — never on how many draws
+	 * the attempts before it took.
+	 */
+	const streamOf = (key, attempt) => rngFrom(hashString(`${key}:${attempt}`));
+
+	/** A full grid: the first draws of `rng`, an empty grid searched in random order. */
+	function fullGrid(rng) {
+		let solution = null;
+		search(Array(CELLS).fill(0), { limit: 1, rng, onSolution: (g) => (solution = g) });
+		return solution;
+	}
+
+	/** The key of a run's puzzle (the platform's init seed), and of a day's. */
+	const seedKey = (seed, level) => `sudoku:seed:${seed >>> 0}:${level}`;
+	const dailyKey = (date, level) => `sudoku:${date}:${level}`;
+
+	/**
+	 * The solved grid of attempt `attempt` of the puzzle `key`: what generate()
+	 * starts that attempt from, and — the puzzle having one solution — the only
+	 * grid that solves it. The arcade's server checks a ranked solo grid with
+	 * this alone (a copy of this file from CELLS to here: games:
+	 * worker/api/sudoku.js),
+	 * never running the removal; keep the copy in step.
+	 */
+	const solutionFor = (key, attempt) => fullGrid(streamOf(key, attempt));
+
 	const countSolutions = (grid, limit = 2) => search(grid, { limit });
 
 	function solve(grid) {
@@ -171,19 +199,23 @@
 	};
 	const LEVEL_IDS = Object.keys(LEVELS);
 
+	const ATTEMPTS = 12;
+
 	/**
-	 * Make a puzzle with exactly one solution. Returns `{ puzzle, solution }`,
-	 * both arrays of 81. Deterministic for a given `rng`.
+	 * Make a puzzle with exactly one solution. Returns `{ puzzle, solution,
+	 * attempt }`: both grids as arrays of 81, and which attempt dealt it.
+	 * Deterministic for a given `key`; each attempt draws from its own stream
+	 * (streamOf), for its full grid first and then for the cells it removes.
 	 */
-	function generate(level, rng) {
+	function generate(level, key) {
 		const spec = LEVELS[level];
 		let fallback = null;
 		// Hard and Expert want a puzzle singles cannot finish. At 27 clues about
 		// two in three can be (measured: 26 in 40), so it takes a few tries —
 		// twelve find one all but always; the rare run that does not deals the last try rather than stall.
-		for (let attempt = 0; attempt < 12; attempt++) {
-			let solution = null;
-			search(Array(CELLS).fill(0), { limit: 1, rng, onSolution: (g) => (solution = g) });
+		for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+			const rng = streamOf(key, attempt);
+			const solution = fullGrid(rng);
 			const puzzle = solution.slice();
 			let clues = CELLS;
 			for (const i of shuffle([...Array(CELLS).keys()], rng)) {
@@ -196,24 +228,22 @@
 					clues--;
 				}
 			}
-			fallback = { puzzle, solution };
+			fallback = { puzzle, solution, attempt };
 			if (spec.singles !== false || !solvesWithSingles(puzzle)) return fallback;
 		}
 		return fallback;
 	}
 
 	/** Today's puzzle for this difficulty: the same on every phone that day. */
-	const dailyPuzzle = (date, level) => generate(level, rngFrom(hashString(`sudoku:${date}:${level}`)));
+	const dailyPuzzle = (date, level) => generate(level, dailyKey(date, level));
 
 	/**
 	 * The puzzle a run's seed deals at this difficulty (the platform's init
-	 * `seed`). The arcade's server issues the seed of a ranked solo run, makes
-	 * the same puzzle from it with a copy of this generator
-	 * (games: worker/api/sudoku.js), and checks the solved grid against it — so
-	 * this function, generate() and everything they call must not change
-	 * without that copy changing too.
+	 * `seed`). The arcade's server issues the seed of a ranked solo run and
+	 * checks the solved grid against solutionFor(seedKey(seed, level),
+	 * attempt) — the proof names the attempt.
 	 */
-	const puzzleFor = (seed, level) => generate(level, rngFrom(hashString(`sudoku:seed:${seed >>> 0}:${level}`)));
+	const puzzleFor = (seed, level) => generate(level, seedKey(seed, level));
 
 	const toText = (grid) => grid.join("");
 	const fromText = (text) => [...text].map(Number);
@@ -293,6 +323,7 @@
 					solution: null,
 					progress: {}, // id → cells right
 					times: {}, // id → ms, once finished
+					attempt: null, // generate()'s attempt that dealt the puzzle (null: resumed)
 					grid: null, // the winner's filled grid (81 characters): a solo run's proof
 					winner: null,
 					players: seats.map((p) => p.id),
@@ -315,7 +346,7 @@
 					if (a.start === "resume") {
 						const r = a.resume ?? {};
 						if (!isGrid(r.puzzle) || !isGrid(r.solution) || !LEVELS[r.level]) return "nothing to resume";
-						made = { puzzle: r.puzzle, solution: r.solution };
+						made = { puzzle: r.puzzle, solution: r.solution, attempt: null };
 						daily = typeof r.daily === "string" ? r.daily.slice(0, 10) : null;
 						s.level = r.level;
 					} else {
@@ -323,8 +354,8 @@
 						const grid =
 							a.start === "daily" ? dailyPuzzle(date, level)
 							: s.seed != null ? puzzleFor(s.seed, level)
-							: generate(level, rngFrom((random() * 2 ** 32) >>> 0));
-						made = { puzzle: toText(grid.puzzle), solution: toText(grid.solution) };
+							: generate(level, `sudoku:random:${(random() * 2 ** 32) >>> 0}:${level}`);
+						made = { puzzle: toText(grid.puzzle), solution: toText(grid.solution), attempt: grid.attempt };
 						daily = a.start === "daily" ? date : null;
 						s.level = level;
 					}
@@ -335,6 +366,7 @@
 						daily,
 						puzzle: made.puzzle,
 						solution: made.solution,
+						attempt: made.attempt, // which of generate()'s attempts dealt it: the proof names it
 						progress: Object.fromEntries(s.players.map((id) => [id, 0])),
 						times: {},
 						grid: null,
@@ -416,7 +448,7 @@
 				if (s.players.length === 1) {
 					const ms = s.times[s.winner];
 					// The end card's heading, as v1's own said it (the derived one is "GAME OVER").
-					const proof = { start: s.start, level: s.level, daily: s.daily, grid: s.grid };
+					const proof = { start: s.start, level: s.level, daily: s.daily, attempt: s.attempt ?? null, grid: s.grid };
 					return { kind: "coop", ranking, ...(ms != null ? { title: `SOLVED IN ${clock(ms)}`, scores: { [s.winner]: Math.round(ms / 1000) }, proof } : {}) };
 				}
 				return { kind: "ffa", ranking, scores: { ...s.progress } };
@@ -435,7 +467,8 @@
 	}
 
 	globalThis.sudokuRules = {
-		CELLS, PEERS, UNITS, LEVELS, LEVEL_IDS, candidates, countSolutions, solve, solvesWithSingles, generate,
+		CELLS, PEERS, UNITS, LEVELS, LEVEL_IDS, ATTEMPTS, candidates, countSolutions, solve, solvesWithSingles, generate, streamOf, fullGrid,
+		seedKey, dailyKey, solutionFor,
 		dailyPuzzle, puzzleFor, rngFrom, hashString, toText, fromText, today, clock, standings, clearNotes, empties, race,
 	};
 })();
