@@ -29,8 +29,8 @@ arcade.managed(
 	}),
 );
 
-const EXTRA_MS = 250; // how far past the last view this phone's clock may run
-const HIDE_MS = 500; // how long a popped bubble stays hidden here before the host's word
+const EXTRA_MS = 250; // how far past the last view this phone's clock may run (rules AHEAD_MS matches it)
+const HIDE_MAX_MS = 3000; // a popped bubble stays hidden until the host's word; this long at most, if it is lost
 const TAP_MIN_MS = 80; // one finger, one tap: a bounce is not a second one
 
 // ------------------------------------------------------------------ chrome
@@ -55,8 +55,9 @@ style.textContent = `
 	.br-board { display: flex; flex-wrap: wrap; gap: 4px 10px; min-height: 1.3em; font-size: 0.78rem; }
 	.br-chip { font-family: var(--font-mono); white-space: nowrap; }
 	.br-chip.is-me { font-weight: bold; text-decoration: underline; }
-	.br-field { position: relative; flex: 1 1 auto; min-height: 0; }
-	.br-field canvas { position: absolute; inset: 0; width: 100%; height: 100%; box-sizing: border-box;
+	/* The field is always 1 : 2 (rules FIELD_ASPECT), letterboxed into the room there is. */
+	.br-field { position: relative; flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; }
+	.br-field canvas { display: block; box-sizing: content-box; flex: none;
 		border: 2px solid var(--rule); border-radius: 10px; background: var(--surface-2);
 		touch-action: none; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
 	.br-setup { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -119,7 +120,8 @@ let paused = false; // the host is out of the app (the platform's `paused`)
 let lastSeq = -1; // the last pop shown as an effect
 let lastMatch = null;
 let lastTap = 0;
-const hidden = new Map(); // bubble id -> when this phone popped it, until the host's word
+const hidden = new Map(); // bubble id -> { at, n }: popped here by tap n, until the host's word
+let tapN = 0; // numbers this phone's taps: the host's view says which it has judged
 let effects = []; // { x, y, at, text?, ring?, flash?, r, colour }
 
 const me = () => view?.you ?? null;
@@ -177,8 +179,13 @@ function bubbleColour(b) {
 /** The field's size in CSS pixels. */
 const size = () => ({ w: canvas.clientWidth, h: canvas.clientHeight });
 
+/** Size the field: the largest 1 : 2 box the room allows, in whole CSS pixels. */
 function fit() {
-	const { w, h } = size();
+	const room = { w: field.clientWidth - 4, h: field.clientHeight - 4 }; // less the canvas's 2px border
+	const w = Math.max(1, Math.floor(Math.min(room.w, room.h * R.FIELD_ASPECT)));
+	const h = Math.max(1, Math.floor(w / R.FIELD_ASPECT));
+	if (canvas.style.width !== `${w}px`) canvas.style.width = `${w}px`;
+	if (canvas.style.height !== `${h}px`) canvas.style.height = `${h}px`;
 	const dpr = Math.min(window.devicePixelRatio || 1, 3);
 	const W = Math.max(1, Math.round(w * dpr));
 	const H = Math.max(1, Math.round(h * dpr));
@@ -192,10 +199,11 @@ function fit() {
 /** A bubble's place and radius on this canvas, in CSS pixels. */
 function onScreen(b, t, f = size()) {
 	const p = R.position(b, t);
-	return { px: p.x * f.w, py: p.y * f.h, pr: b.r * Math.min(f.w, f.h) };
+	return { px: p.x * f.w, py: p.y * f.h, pr: b.r * f.w };
 }
 
-const isHidden = (id, at = performance.now()) => hidden.has(id) && at - hidden.get(id) < HIDE_MS;
+/** Popped here and not yet settled by the host (its view drops the bubble, or acknowledges the tap). */
+const isHidden = (id, at = performance.now()) => hidden.has(id) && at - hidden.get(id).at < HIDE_MAX_MS;
 
 function drawBubble(b, s, t) {
 	const name = bubbleColour(b);
@@ -370,8 +378,9 @@ function renderHud() {
 	if (view.mode === "teams") {
 		const a = side("A");
 		const b = side("B");
-		const ts = R.teamScores(view.scores, a, b);
-		board.replaceChildren(chip(`TEAM A ${Math.round(ts.A)} (${a.length})`, "accent", teamOf(mine) === "A"), chip(`TEAM B ${Math.round(ts.B)} (${b.length})`, "accent2", teamOf(mine) === "B"));
+		const ts = view.avg ?? R.teamScores(view.scores, a, b);
+		const [ta, tb] = R.averages(ts.A, ts.B);
+		board.replaceChildren(chip(`TEAM A ${ta} (${a.length})`, "accent", teamOf(mine) === "A"), chip(`TEAM B ${tb} (${b.length})`, "accent2", teamOf(mine) === "B"));
 	} else {
 		const ids = seats().map(([id]) => id);
 		const order = [...ids].sort((x, y) => (view.scores[y] ?? 0) - (view.scores[x] ?? 0));
@@ -435,23 +444,23 @@ canvas.addEventListener("pointerdown", (e) => {
 	lastTap = at;
 	const t = now();
 	if (stunLeft(mine, t) > 0) return;
+	// The content box: the bounding rect includes the canvas's border.
 	const rect = canvas.getBoundingClientRect();
 	const f = size();
-	const x = (e.clientX - rect.left) / f.w;
-	const y = (e.clientY - rect.top) / f.h;
+	const x = (e.clientX - rect.left - canvas.clientLeft) / f.w;
+	const y = (e.clientY - rect.top - canvas.clientTop) / f.h;
+	const n = ++tapN;
 	// Popped here at once; the host's word confirms it, or the bubble comes back.
 	const hit = R.hitTest(
 		bubbles.filter((b) => !isHidden(b.id, at)),
 		x,
 		y,
 		t,
-		f.w,
-		f.h,
 	);
-	if (hit) hidden.set(hit.id, at);
+	if (hit) hidden.set(hit.id, { at, n });
 	else effects.push({ x, y, at, ring: true, r: 0.03, colour: "rule" });
 	const r4 = (v) => Math.round(v * 1e4) / 1e4;
-	arcade.act({ tap: { x: r4(x), y: r4(y), t: Math.round(t), w: Math.round(f.w), h: Math.round(f.h) } });
+	arcade.act({ tap: { x: r4(x), y: r4(y), t: Math.round(t), n } });
 });
 
 addEventListener("keydown", (e) => {
@@ -485,14 +494,18 @@ function onView(next) {
 		lastSeq = next.phase === "setup" || next.phase === "count" ? 0 : next.seq;
 		clockT = next.t;
 	}
-	if (lastSeq < 0) lastSeq = next.seq; // joined mid-round: no burst of old pops
+	// Joined mid-round, or a new host carrying on from an older copy (its
+	// count is behind this phone's): no burst of old pops, none missed after.
+	if (lastSeq < 0 || next.seq < lastSeq) lastSeq = next.seq;
 	if (view && view.phase !== next.phase) clockT = next.t;
 	view = next;
 	recvAt = performance.now();
 	bubbles = next.bubbles.map(R.unpack);
 	for (const ev of next.events) if (ev.seq > lastSeq) effectFor(ev);
 	lastSeq = Math.max(lastSeq, next.seq);
-	for (const id of hidden.keys()) if (!bubbles.some((b) => b.id === id)) hidden.delete(id);
+	// Settled: the bubble is gone (ours, or someone's), or the host judged the
+	// tap that hid it and the bubble is still there (a miss, or refused).
+	for (const [id, h] of hidden) if (!bubbles.some((b) => b.id === id) || (next.ack ?? 0) >= h.n) hidden.delete(id);
 	renderSetup();
 	wake();
 }
@@ -531,13 +544,17 @@ arcade.debug = () => {
 		host: arcade.isHost(),
 		paused,
 		scores: { ...(view?.scores ?? {}) },
-		teamScores: R.teamScores(view?.scores ?? {}, side("A"), side("B")),
+		teamScores: view?.avg ?? R.teamScores(view?.scores ?? {}, side("A"), side("B")),
+		popped: { ...(view?.popped ?? {}) },
+		misses: view?.mine?.misses ?? 0,
+		ack: view?.ack ?? 0,
+		taps: tapN,
 		seq: view?.seq ?? 0,
 		streak: mine ? streakAt(mine, t) : 0,
 		stunned: mine ? stunLeft(mine, t) > 0 : false,
 		field: f,
 		bubbles: bubbles
-			.filter((b) => R.alive(b, t) && !isHidden(b.id))
+			.filter((b) => R.alive(b, t) && R.surfaced(b, t) && !isHidden(b.id))
 			.map((b) => ({ id: b.id, k: b.k, team: b.team, pts: b.pts, ...R.position(b, t), r: b.r, ...onScreen(b, t, f) })),
 	};
 };

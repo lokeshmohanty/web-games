@@ -29,17 +29,28 @@
 // round clock. The tick only has to keep that clock, spawn bubbles a little
 // before they surface, run the bots and end the round: 10 a second is plenty.
 //
+// ## One field, the same shape on every phone
+//
+// The field is always FIELD_ASPECT wide for its height (1 : 2, a phone held
+// upright), letterboxed into whatever room a phone has. So the host knows
+// exactly where every bubble is drawn on every phone, as fractions of the
+// field, and a phone has nothing to say about its screen that could stretch
+// a bubble: the review of 2026-11-15 found that a claimed field size let a
+// phone double a bubble's reach.
+//
 // ## Who popped what: the host decides
 //
-// A phone sends where the finger landed, as fractions of its field, with the
-// field's size and the round time it was drawing — never which bubble it
-// thinks it hit. The host puts every bubble where it was at that time and
-// takes the nearest one under the finger, a fingertip's slack around it.
-// The time is trusted only within a window behind the host's clock (the
-// view's trip out plus the tap's trip back), so a phone cannot name a bubble,
-// cannot pop one that was never under its finger, and cannot reach far back
-// in time; a tap on a bubble someone popped first is refused without
-// penalty, and a tap on empty field is a miss.
+// A phone sends where the finger landed, as fractions of the field, and the
+// round time it was drawing — never which bubble it thinks it hit. The host
+// puts every bubble where it was at that time and takes the nearest one under
+// the finger, a fingertip's slack around it. The time is trusted only within
+// a window: a guest's clock is behind the host's (the view's trip out, the
+// tap's trip back), never ahead, and only the host's own seat, whose clock
+// runs on between ticks, may be a little ahead. A player's taps never go back
+// in time, a bubble not yet born on the host or still below the field cannot
+// be hit (the views carry bubbles before they surface: the review found them
+// sniped before birth), a tap on a bubble someone popped first is refused
+// without penalty, and a tap on empty field is a miss.
 
 (() => {
 	const ROUND_MS = 60_000;
@@ -48,9 +59,10 @@
 	const FRENZY_SPAWN = 1.5;
 	const HZ = 10; // game.json "tick"
 
-	// r is a fraction of the field's shorter side — on a phone held upright,
-	// its width, where the smallest is still a fingertip across. speed scales
-	// the rise time.
+	// The field's width over its height: a phone held upright. Everything is
+	// placed in fractions of it; r is a fraction of its width, where the
+	// smallest bubble is still a fingertip across. speed scales the rise time.
+	const FIELD_ASPECT = 0.5;
 	const SIZES = [
 		{ r: 0.045, pts: 30, speed: 0.85 },
 		{ r: 0.065, pts: 20, speed: 1 },
@@ -66,25 +78,34 @@
 
 	// Taps, judged on the host.
 	const LAG_MS = 500; // how far behind the host's clock a tap may say it was made
-	const AHEAD_MS = 150; // and ahead: the host's clock moves on between ticks
-	const SLACK_PX = 10; // a fingertip is not a pixel
-	const MIN_FIELD_PX = 240; // a claimed field smaller than this is taken as this (no giant slack)
-	const MAX_FIELD_PX = 4000;
+	// And ahead, for the host's own seat only: its phone carries the clock on
+	// between ticks, up to bubble-rush.js EXTRA_MS (250) past the last view.
+	const AHEAD_MS = 250;
+	const SLACK = 0.03; // a fingertip is not a point: a fraction of the field's width (~11 px on a phone)
+	const EDGE = 0.01; // how far outside the field a tap may land and still count as on it
 	const TAPS_PER_TICK = 3; // per player: a double tap is fine, a flood is not
 	// Spawned this far ahead of their birth, so every phone has a bubble
 	// before it surfaces from below the field.
 	const LEAD_MS = 400;
 
-	// Bots. Supply is what these are tuned against: two players see 3.5–7
-	// bubbles a second — enough that the field stays full and choosing which
-	// to pop matters — a bot takes about 1.3 of them, and someone paying
-	// attention takes more. A bot does not see a bubble until it has been on
-	// screen a moment, and now and then it misses or hits a bomb.
-	const BOT_EVERY_MS = [600, 900];
+	// Bots. A bot does not see a bubble until it has been on screen a moment,
+	// goes for golden first and then the richest bubble it may score, and
+	// leaves bombs alone, barely ever slipping. What keeps it beatable is
+	// lapses: now and then it loses the thread for longer than a streak lasts,
+	// so its multiplier keeps falling back, as a person's does (Lokesh,
+	// 2026-11-15: soften the bots, so a competent player can win). Tuned
+	// against a scripted competent player (500 ms to react, a tap every
+	// 0.65–1 s, 6% misses, 2% bombs) in one-on-one rounds: it wins 106 of 200
+	// seeded rounds; test-bubble-rush.mjs asserts that stays between 35% and
+	// 65%. The old bot (no lapses, 8% misses, 6% bombs, a tap every 0.6–0.9 s)
+	// lost 51 of 60 to that player but broke its streak on luck alone.
+	const BOT_EVERY_MS = [450, 750];
 	const BOT_REACT_MS = 400;
-	const BOT_MISS = 0.08;
-	const BOT_BOMB = 0.06;
+	const BOT_MISS = 0.02;
+	const BOT_BOMB = 0.01;
 	const BOT_DENY = 0.3;
+	const BOT_HESITATE = 0.07;
+	const BOT_HESITATE_MS = [STREAK_MS + 100, STREAK_MS + 1100];
 
 	const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 	const frac = (t) => clamp(t / ROUND_MS, 0, 1);
@@ -191,21 +212,24 @@
 		return { pts: b.pts * mult, mult, kind: "pop" };
 	}
 
+	/** Whether any of `b` shows above the field's bottom edge at `t` (r is in widths; y in heights). */
+	const surfaced = (b, t) => position(b, t).y - b.r * FIELD_ASPECT < 1;
+
 	/**
-	 * The bubble under a finger at (x, y) — fractions of a w × h field (CSS
-	 * pixels) — at round time `t`: the nearest one within its radius and a
-	 * fingertip's slack, or null. The host judges taps with this; a phone uses
-	 * the same to pop its own bubble at once while the host's word is on its way.
+	 * The bubble under a finger at (x, y) — fractions of the field — at round
+	 * time `t`: the nearest one on the field within its radius and a
+	 * fingertip's slack, or null. Distances are in field widths, the field's
+	 * shape being fixed. The host judges taps with this; a phone uses the same
+	 * to pop its own bubble at once while the host's word is on its way.
 	 */
-	function hitTest(bubbles, x, y, t, w, h) {
-		const side = Math.min(w, h);
+	function hitTest(bubbles, x, y, t) {
 		let hit = null;
 		let best = Infinity;
 		for (const b of bubbles) {
-			if (!alive(b, t)) continue;
+			if (!alive(b, t) || !surfaced(b, t)) continue;
 			const p = position(b, t);
-			const d = Math.hypot((p.x - x) * w, (p.y - y) * h);
-			if (d <= b.r * side + SLACK_PX && d < best) {
+			const d = Math.hypot(p.x - x, (p.y - y) / FIELD_ASPECT);
+			if (d <= b.r + SLACK && d < best) {
 				hit = b;
 				best = d;
 			}
@@ -249,7 +273,7 @@
 	 * alone, but now and then slips — a person does too.
 	 */
 	function botPick(bubbles, t, team, mode, rng) {
-		const seen = bubbles.filter((b) => t - b.born >= BOT_REACT_MS && alive(b, t) && progress(b, t) < 0.97);
+		const seen = bubbles.filter((b) => t - b.born >= BOT_REACT_MS && alive(b, t) && surfaced(b, t) && progress(b, t) < 0.97);
 		if (!seen.length) return null;
 		if (rng() < BOT_MISS) return { miss: true };
 		const bombs = seen.filter((b) => b.k === "x");
@@ -273,6 +297,13 @@
 	// app (the platform stops ticking) stops spawns, bots, stuns and the
 	// countdown at once, and a snapshot carries the whole round to the heir.
 
+	/** Two averages as shown: whole numbers, or one decimal when the whole numbers would look equal. */
+	function averages(a, b) {
+		const one = Math.round(a) === Math.round(b) && a !== b;
+		const show = (v) => (one ? (Math.round(v * 10) / 10).toFixed(1) : String(Math.round(v)));
+		return [show(a), show(b)];
+	}
+
 	/** "Free-for-all" / "Teams", for the end card. */
 	const modeName = (mode) => (mode === "teams" ? "Teams" : "Free-for-all");
 
@@ -290,13 +321,17 @@
 		const seated = (id) => s.seats.some((p) => p.id === id && !s.left.includes(id));
 		const teamOf = (id) => s.seats.find((p) => p.id === id)?.team ?? null;
 		const side = (team) => s.seats.filter((p) => p.team === team && !s.left.includes(p.id)).map((p) => p.id);
+		/** Everyone who played on a side, leavers too: a side's average counts what they scored. */
+		const sideAll = (team) => s.seats.filter((p) => p.team === team).map((p) => p.id);
 		const teamsOk = () => side("A").length > 0 && side("B").length > 0;
 		const players = () => s.seats.filter((p) => !s.left.includes(p.id)).map((p) => p.id);
 		const nameOf = (id) => s.seats.find((p) => p.id === id)?.name ?? "Player";
 		/** A player's streak as it stands at `t` — a pause between pops has broken it. */
 		const streakAt = (id, t) => (t - (s.lastPop[id] ?? -Infinity) > STREAK_MS ? 0 : (s.streaks[id] ?? 0));
 		const rnd = () => nextRandom(s);
-		const nextBot = () => BOT_EVERY_MS[0] + rnd() * (BOT_EVERY_MS[1] - BOT_EVERY_MS[0]);
+		const between = ([lo, hi]) => lo + rnd() * (hi - lo);
+		/** A bot's next tap: its usual beat, or now and then a lapse long enough to break its streak. */
+		const nextBot = () => (rnd() < BOT_HESITATE ? between(BOT_HESITATE_MS) : between(BOT_EVERY_MS));
 
 		/**
 		 * The mode the round would be played in: TEAMS needs both sides;
@@ -356,24 +391,36 @@
 			s.gone = s.gone.filter((g) => s.t - g.at <= LAG_MS + AHEAD_MS);
 		}
 
-		/** The host's word on a person's tap: nothing (popped or missed), or why it was refused. */
+		/**
+		 * The host's word on a person's tap `{ x, y, t, n? }`: nothing (popped
+		 * or missed), or why it was refused. Every judged tap is acknowledged
+		 * (`n`, in that player's view), so their phone knows when to stop
+		 * hiding a bubble it popped on its own.
+		 */
 		function tap(by, a) {
 			if (s.phase !== "play") return "the round is not on";
 			if (!seated(by)) return "you are watching";
-			if ((s.stun[by] ?? -Infinity) > s.t) return "stunned";
 			const { x, y, t } = a;
-			if (![x, y, t, a.w, a.h].every(Number.isFinite)) return "not a tap";
-			if (x < -0.1 || x > 1.1 || y < -0.1 || y > 1.1) return "not on the field";
+			if (![x, y, t].every((v) => typeof v === "number" && Number.isFinite(v))) return "not a tap";
+			if (Number.isSafeInteger(a.n) && a.n > (s.ack[by] ?? 0)) s.ack[by] = a.n;
+			if ((s.stun[by] ?? -Infinity) > s.t) return "stunned";
+			if (x < -EDGE || x > 1 + EDGE || y < -EDGE || y > 1 + EDGE) return "not on the field";
 			if ((s.taps[by] ?? 0) >= TAPS_PER_TICK) return "too fast";
 			s.taps[by] = (s.taps[by] ?? 0) + 1;
-			const w = clamp(a.w, MIN_FIELD_PX, MAX_FIELD_PX);
-			const h = clamp(a.h, MIN_FIELD_PX, MAX_FIELD_PX);
-			// When the phone drew what was tapped: trusted only within the window.
-			const when = clamp(t, Math.max(0, s.t - LAG_MS), s.t + AHEAD_MS);
-			const b = hitTest(s.bubbles, x, y, when, w, h);
-			if (b) return void pop(by, b);
-			// Someone got there first (or this phone, a moment ago): no penalty.
-			if (hitTest(s.gone.map((g) => g.b), x, y, when, w, h)) return "someone popped it first";
+			// When the phone drew what was tapped: trusted only within the
+			// window — behind the host's clock for a guest, a little ahead for
+			// the host's own seat — and never earlier than this player's last tap.
+			const ahead = isHost(by) ? AHEAD_MS : 0;
+			const when = Math.max(clamp(t, Math.max(0, s.t - LAG_MS), s.t + ahead), s.lastT[by] ?? -Infinity);
+			s.lastT[by] = when;
+			// Only bubbles born on the host by now: the views carry them earlier.
+			const live = s.bubbles.filter((b) => b.born <= s.t);
+			const gone = s.gone.map((g) => g.b);
+			const b = hitTest([...live, ...gone], x, y, when);
+			if (b && live.includes(b)) return void pop(by, b);
+			// The nearest bubble under the finger went to someone a moment before
+			// (or to this phone's own earlier tap): no penalty.
+			if (b) return "someone popped it first";
 			miss(by);
 		}
 
@@ -421,6 +468,9 @@
 					stats: { popped: {}, best: {}, bombs: {}, misses: {}, golden: 0, denied: 0 },
 					botDue: {},
 					botN: {},
+					lastT: {}, // per player: the time their last tap was judged at (taps never go back)
+					ack: {}, // per player: the number of their last judged tap
+					alone: seats.length === 1 && !seats[0].bot, // played alone from the start: a solo run
 					rng: seed >>> 0,
 				};
 				s.mode = fitMode(s.want);
@@ -481,6 +531,12 @@
 					events: s.events,
 					seq: s.seq,
 					you: seat && seated(seat) ? seat : null,
+					// This seat's own count: its last judged tap, pops, misses, bombs.
+					ack: (seat && s.ack[seat]) || 0,
+					mine: seat ? { popped: s.stats.popped[seat] ?? 0, misses: s.stats.misses[seat] ?? 0, bombs: s.stats.bombs[seat] ?? 0 } : null,
+					popped: { ...s.stats.popped },
+					// Team averages, leavers' scores included (they still count for their side).
+					...(s.mode === "teams" ? { avg: teamScores(s.scores, sideAll("A"), sideAll("B")) } : {}),
 				};
 			},
 
@@ -499,8 +555,10 @@
 
 			/**
 			 * The round's places. Teams: the side with the higher average first,
-			 * each side one slot (kind "teams"); free-for-all: by score, ties
-			 * sharing (kind "ffa"); alone: played, with the score (kind "coop").
+			 * each side one slot (kind "teams"), leavers counted in their side's
+			 * average but out of the places; free-for-all: by score, ties sharing
+			 * (kind "ffa"); a round begun alone: played, with the score (kind
+			 * "coop", never below zero: the arcade's server refuses that).
 			 */
 			result() {
 				if (s.phase !== "over") return null;
@@ -516,25 +574,34 @@
 					{ label: "Golden caught", value: s.stats.golden },
 					{ label: "Bombs hit", value: total(s.stats.bombs) },
 				];
-				if (ids.length === 1 && !s.seats.find((p) => p.id === ids[0])?.bot) {
+				if (s.alone && ids.length === 1) {
 					details.push({ label: "Misses", value: total(s.stats.misses) });
-					return { kind: "coop", ranking: [ids], scores, title: `${scores[ids[0]]} POINTS`, details };
+					const mine = scores[ids[0]];
+					return { kind: "coop", ranking: [ids], scores: { [ids[0]]: Math.max(0, mine) }, title: `${mine} POINTS`, details };
 				}
-				if (s.mode === "teams" && teamsOk()) {
-					const a = side("A");
-					const b = side("B");
-					const ts = teamScores(s.scores, a, b);
+				if (s.mode === "teams") {
+					const ts = teamScores(s.scores, sideAll("A"), sideAll("B"));
+					const [ta, tb] = averages(ts.A, ts.B);
 					details.push({ label: "Denied", value: s.stats.denied });
-					details.push({ label: "Team A average", value: `${Math.round(ts.A)} (${a.length})` });
-					details.push({ label: "Team B average", value: `${Math.round(ts.B)} (${b.length})` });
-					const r = teamRanking(s.scores, a, b);
-					return { kind: "teams", ranking: r, scores, ...(r.length === 1 ? { title: "A TIE" } : {}), details };
+					details.push({ label: "Team A average", value: `${ta} (${sideAll("A").length})` });
+					details.push({ label: "Team B average", value: `${tb} (${sideAll("B").length})` });
+					const first = ts.A > ts.B ? "A" : ts.B > ts.A ? "B" : null;
+					const here = { A: side("A"), B: side("B") };
+					const r = (first ? [here[first], here[first === "A" ? "B" : "A"]] : [[...here.A, ...here.B]]).filter((x) => x.length);
+					// Both sides still here: the card says YOU WIN / X & Y WIN itself.
+					// A side that has emptied is not in the places, so the title says who won.
+					const title = !first ? "A TIE" : here.A.length && here.B.length ? null : `TEAM ${first} WINS`;
+					return { kind: "teams", ranking: r, scores, ...(title ? { title } : {}), details };
 				}
 				const r = ranking(s.scores, ids);
 				return { kind: "ffa", ranking: r, scores, ...(r.length === 1 && ids.length > 1 ? { title: "A TIE" } : {}), details };
 			},
 
-			/** A player who left the party is out of the round; what they scored no longer counts. */
+			/**
+			 * A player who left the party is out of the round: no more taps, out
+			 * of the places. In TEAMS what they scored still counts for their
+			 * side, so leaving cannot raise a side's average.
+			 */
 			leave({ seat }) {
 				if (!s.seats.some((p) => p.id === seat) || s.left.includes(seat)) return false;
 				s.left.push(seat);
@@ -552,9 +619,9 @@
 	}
 
 	globalThis.bubbleRushRules = {
-		ROUND_MS, COUNT_MS, FRENZY_MS, HZ, SIZES, GOLDEN, BOMB, STREAK_MS, STUN_MS, MAX_MULT, LAG_MS, AHEAD_MS, SLACK_PX, LEAD_MS,
-		BOT_EVERY_MS, BOT_REACT_MS, TAPS_PER_TICK,
-		rngFrom, riseMs, bombChance, spawnInterval, makeBubble, pack, unpack, progress, position, alive, multiplier, popPoints,
-		hitTest, teamScores, ranking, teamRanking, botPick, game,
+		ROUND_MS, COUNT_MS, FRENZY_MS, HZ, FIELD_ASPECT, SIZES, GOLDEN, BOMB, STREAK_MS, STUN_MS, MAX_MULT, LAG_MS, AHEAD_MS, SLACK, EDGE, LEAD_MS,
+		BOT_EVERY_MS, BOT_REACT_MS, BOT_HESITATE, BOT_HESITATE_MS, TAPS_PER_TICK,
+		rngFrom, riseMs, bombChance, spawnInterval, makeBubble, pack, unpack, progress, position, alive, surfaced, multiplier, popPoints,
+		hitTest, teamScores, averages, ranking, teamRanking, botPick, game,
 	};
 })();

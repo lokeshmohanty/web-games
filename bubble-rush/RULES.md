@@ -29,6 +29,7 @@ You pop four small bubbles in a row: 30 + 30 + 30 + 30 = 120. Your streak is now
 - Popping the other team's colour scores nothing, but it keeps your streak going and takes that bubble away from them (**DENIED**).
 - Golden bubbles and bombs belong to nobody: anyone can pop them.
 - A team's score is the **average** of its players' scores, so a team of one can beat a team of three.
+- A player who leaves during the round still counts in their team's average, but is not ranked.
 
 ## Winning
 - When the clock runs out, the highest score wins. Equal scores share a place.
