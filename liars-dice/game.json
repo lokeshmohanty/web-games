@@ -6,6 +6,7 @@
   "blurb": "Bid on dice you cannot see. Ones are wild. Call a bluff and someone loses one.",
   "description": "Bid on dice you cannot see. Ones are wild. Nobody deals \u2014 you roll your own and commit to them, so the cups can be trusted when they come up.",
   "entry": "index.html",
+  "rules": "RULES.md",
   "shape": "free",
   "seats": {
     "min": 2,

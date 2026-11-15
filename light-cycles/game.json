@@ -9,6 +9,7 @@
   "blurb": "Ride, leave a wall, do not touch one. Last one moving wins.",
   "description": "Ride, leave a wall behind you, and do not touch one. Tap left or right to turn. Up to eight at once, and the bots fill space rather than wander.",
   "entry": "index.html",
+  "rules": "RULES.md",
   "shape": "free",
   "seats": {
     "min": 1,
