@@ -1,0 +1,33 @@
+{
+  "sdk": 2,
+  "state": "managed",
+  "tick": 10,
+  "viewRate": 10,
+  "id": "bubble-rush",
+  "name": "BUBBLE RUSH",
+  "title": "Bubble Rush",
+  "blurb": "Pop the rising bubbles before anyone else. Free-for-all or teams.",
+  "description": "Bubbles rise and wobble; tap to pop them. Small ones score most, golden ones are a bonus, and bombs cost points and stun you. Chain pops for up to ×5, and a miss breaks the streak. Free-for-all or teams, against friends or bots.",
+  "entry": "index.html",
+  "rules": "RULES.md",
+  "shape": "free",
+  "seats": {
+    "min": 1,
+    "max": 8
+  },
+  "bots": true,
+  "kind": "ffa",
+  "tags": [
+    "alone",
+    "party",
+    "quick"
+  ],
+  "categories": [
+    "arcade",
+    "party"
+  ],
+  "preview": "preview.gif",
+  "license": "MIT",
+  "author": "lokeshmohanty",
+  "repo": "https://github.com/lokeshmohanty/web-games"
+}
