@@ -604,11 +604,16 @@
 					// Each side keeps its place even when everyone on it has left (an
 					// empty slot): one slot would read as a draw, or as a win for the
 					// side still here (lib/stats.js, the card's series).
-					const r = first ? [here[first], here[first === "A" ? "B" : "A"]] : [[...here.A, ...here.B]];
+					// A tie on the averages is one place for everyone who played, the
+					// leavers too: left out, a 1-against-1 tie whose other player had
+					// gone would be one player alone in the place, read as a win.
+					const r = first ? [here[first], here[first === "A" ? "B" : "A"]] : [[...sideAll("A"), ...sideAll("B")]];
 					// Both sides still here: the card says YOU WIN / X & Y WIN itself.
 					// A side that has emptied has nobody to name, so the title says who won.
 					const title = !first ? "A TIE" : here.A.length && here.B.length ? null : `TEAM ${first} WINS`;
-					return { kind: "teams", ranking: r, scores, ...(title ? { title } : {}), details };
+					// Every score that counted for a side, leavers' too (one may share the tied place).
+					const all = Object.fromEntries([...sideAll("A"), ...sideAll("B")].map((id) => [id, s.scores[id] ?? 0]));
+					return { kind: "teams", ranking: r, scores: all, ...(title ? { title } : {}), details };
 				}
 				const r = ranking(s.scores, ids);
 				return { kind: "ffa", ranking: r, scores, ...(r.length === 1 && ids.length > 1 ? { title: "A TIE" } : {}), details };

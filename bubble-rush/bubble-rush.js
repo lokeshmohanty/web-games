@@ -189,18 +189,20 @@ function bubbleColour(b) {
 /** The field's size in CSS pixels. */
 const size = () => ({ w: canvas.clientWidth, h: canvas.clientHeight });
 
-/** Size the field: the largest 1 : 2 box the room allows, in whole CSS pixels. */
-// Narrower than this, a small bubble is a few pixels across with its slack.
-const MIN_FIELD_W = 300;
-/** A phone held sideways: landscape, and its short side short. Tablets and desktops are not. */
+/**
+ * A phone held sideways: landscape, and its short side short. Its field would
+ * be a sliver (about 130 px wide at 844 × 390), so the game asks for it upright.
+ * Upright is never asked about: a real portrait phone's browser leaves a field
+ * of about 270–360 px, which plays. Tablets and desktops are not phones.
+ */
 const sideways = () => innerWidth > innerHeight && Math.min(innerWidth, innerHeight) < 500;
 
+/** Size the field: the largest 1 : 2 box the room allows, in whole CSS pixels. */
 function fit() {
 	const room = { w: field.clientWidth - 4, h: field.clientHeight - 4 }; // less the canvas's 2px border
 	const w = Math.max(1, Math.floor(Math.min(room.w, room.h * R.FIELD_ASPECT)));
-	// A phone on its side would get a sliver of a field: ask for it upright
-	// (the round goes on; the canvas is covered until it is turned).
-	const upright = !(w < MIN_FIELD_W && sideways());
+	// The round goes on; the canvas is covered until the phone is turned.
+	const upright = !sideways();
 	if (turn.hidden !== upright) turn.hidden = upright;
 	const h = Math.max(1, Math.floor(w / R.FIELD_ASPECT));
 	if (canvas.style.width !== `${w}px`) canvas.style.width = `${w}px`;

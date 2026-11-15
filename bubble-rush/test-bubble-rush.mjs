@@ -596,6 +596,22 @@ console.log("\nresults: alone, leavers, emptied sides");
 }
 
 {
+	// An exact tie in a 1-against-1 where one of them left: a draw, not a win
+	// for the one still here (the leaver stays in the shared place).
+	const g = start([person("host", "A"), person("b1", "B")], "teams");
+	place(g, [still(g, 1, 0.3, 0.5), still(g, 2, 0.7, 0.5)]);
+	g.apply({ action: tapOn(g, g.snapshot().bubbles[0]), by: "host" });
+	g.apply({ action: tapOn(g, g.snapshot().bubbles[0]), by: "b1" });
+	g.leave({ seat: "b1" });
+	const s = clone(g.snapshot());
+	s.t = ROUND_MS;
+	g.restore({ snapshot: s });
+	g.tick({ inputs: {}, dt });
+	const r = g.result();
+	check("a teams tie with a leaver: one shared place, the leaver in it (a draw)", r?.kind === "teams" && r.title === "A TIE" && JSON.stringify(r.ranking) === '[["host","b1"]]' && r.scores.b1 === 30, JSON.stringify(r && { title: r.title, ranking: r.ranking, scores: r.scores }));
+}
+
+{
 	const show = (a, b) => (typeof R.averages === "function" ? R.averages(a, b).join(" ") : "none");
 	check("team averages: whole numbers, one decimal when they would look equal but are not", show(15, 15.4) === "15.0 15.4" && show(15, 16) === "15 16" && show(20, 20) === "20 20", `${show(15, 15.4)} | ${show(15, 16)} | ${show(20, 20)}`);
 }
