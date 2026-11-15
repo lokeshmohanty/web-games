@@ -1,9 +1,9 @@
-# arcade-games
+# web-games
 
 Six games for [the arcade](https://www.lokeshmohanty.in/games/) — and the
 worked example of a games repository the arcade lists. Nothing here is
 special: it is registered exactly as anyone's repository would be
-(`registry/lokeshmohanty/arcade-games.json` in
+(`registry/lokeshmohanty/web-games.json` in
 [lokeshmohanty/games](https://github.com/lokeshmohanty/games)).
 
 | Game | Folder | SDK | Shows how to… |
@@ -58,13 +58,13 @@ one, or at `NEON_PLATFORM`.) And the arcade's own check, with a browser, from
 that checkout:
 
 ```sh
-just validate-game ../arcade-games/battleship  # or every folder at once
+just validate-game ../web-games/battleship  # or every folder at once
 ```
 
 ## Shipping a change
 
 Commit and push here, then open a pull request on `lokeshmohanty/games`
-bumping `"commit"` in `registry/lokeshmohanty/arcade-games.json` to the new
+bumping `"commit"` in `registry/lokeshmohanty/web-games.json` to the new
 sha. The workflow is the same for anyone: see
 [CONTRIBUTING.md](https://github.com/lokeshmohanty/games/blob/main/CONTRIBUTING.md).
 
