@@ -205,6 +205,16 @@
 	/** Today's puzzle for this difficulty: the same on every phone that day. */
 	const dailyPuzzle = (date, level) => generate(level, rngFrom(hashString(`sudoku:${date}:${level}`)));
 
+	/**
+	 * The puzzle a run's seed deals at this difficulty (the platform's init
+	 * `seed`). The arcade's server issues the seed of a ranked solo run, makes
+	 * the same puzzle from it with a copy of this generator
+	 * (games: worker/api/sudoku.js), and checks the solved grid against it — so
+	 * this function, generate() and everything they call must not change
+	 * without that copy changing too.
+	 */
+	const puzzleFor = (seed, level) => generate(level, rngFrom(hashString(`sudoku:seed:${seed >>> 0}:${level}`)));
+
 	const toText = (grid) => grid.join("");
 	const fromText = (text) => [...text].map(Number);
 
@@ -270,16 +280,20 @@
 		const nextDue = (from) => from + pace() * (0.6 + random() * 0.8);
 
 		return {
-			init({ seats }) {
+			init({ seats, seed }) {
 				s = {
 					match: s?.match ?? 0, // puzzles started in this run
 					phase: "pick", // "pick" | "play" | "over"
+					// A new puzzle is dealt from it (puzzleFor): the server's, in a ranked solo run.
+					seed: Number.isInteger(seed) ? seed >>> 0 : null,
+					start: null, // how the puzzle was dealt: "daily" | "new" | "resume"
 					level: null,
 					daily: null, // the date, when it is the daily puzzle
 					puzzle: null, // 81 characters, 0 for empty
 					solution: null,
 					progress: {}, // id → cells right
 					times: {}, // id → ms, once finished
+					grid: null, // the winner's filled grid (81 characters): a solo run's proof
 					winner: null,
 					players: seats.map((p) => p.id),
 					bots: seats.filter((p) => p.bot).map((p) => p.id),
@@ -306,7 +320,10 @@
 						s.level = r.level;
 					} else {
 						const date = today(new Date(now()));
-						const grid = a.start === "daily" ? dailyPuzzle(date, level) : generate(level, rngFrom((random() * 2 ** 32) >>> 0));
+						const grid =
+							a.start === "daily" ? dailyPuzzle(date, level)
+							: s.seed != null ? puzzleFor(s.seed, level)
+							: generate(level, rngFrom((random() * 2 ** 32) >>> 0));
 						made = { puzzle: toText(grid.puzzle), solution: toText(grid.solution) };
 						daily = a.start === "daily" ? date : null;
 						s.level = level;
@@ -314,11 +331,13 @@
 					Object.assign(s, {
 						match: s.match + 1,
 						phase: "play",
+						start: a.start === "resume" || a.start === "daily" ? a.start : "new",
 						daily,
 						puzzle: made.puzzle,
 						solution: made.solution,
 						progress: Object.fromEntries(s.players.map((id) => [id, 0])),
 						times: {},
+						grid: null,
 						winner: null,
 						startedAt: now(),
 					});
@@ -326,13 +345,14 @@
 					return;
 				}
 				if (a.progress) {
-					const { match, right, ms } = a.progress;
+					const { match, right, ms, grid } = a.progress;
 					if (s.phase !== "play" || match !== s.match) return "that race is over";
 					if (!s.players.includes(by) || s.bots.includes(by)) return "not racing";
 					const total = empties(s.puzzle);
 					s.progress[by] = Math.max(0, Math.min(total, right | 0));
 					if (ms != null && s.progress[by] === total) {
 						s.times[by] = Math.max(0, ms | 0);
+						s.grid = isGrid(grid) ? grid : null;
 						s.winner = by;
 						s.phase = "over";
 					}
@@ -386,7 +406,9 @@
 			/**
 			 * Places at the end of a race: the winner alone first, then everybody
 			 * else by how many cells they had right (the card derives "YOU WIN" /
-			 * "X WINS" on each phone). Alone, it is played, with the time it took.
+			 * "X WINS" on each phone). Alone, it is played, with the time it took,
+			 * and the proof the arcade's server checks before it ranks the time:
+			 * how the puzzle was dealt and the solved grid.
 			 */
 			result() {
 				if (s.phase !== "over") return null;
@@ -394,7 +416,8 @@
 				if (s.players.length === 1) {
 					const ms = s.times[s.winner];
 					// The end card's heading, as v1's own said it (the derived one is "GAME OVER").
-					return { kind: "coop", ranking, ...(ms != null ? { title: `SOLVED IN ${clock(ms)}`, scores: { [s.winner]: Math.round(ms / 1000) } } : {}) };
+					const proof = { start: s.start, level: s.level, daily: s.daily, grid: s.grid };
+					return { kind: "coop", ranking, ...(ms != null ? { title: `SOLVED IN ${clock(ms)}`, scores: { [s.winner]: Math.round(ms / 1000) }, proof } : {}) };
 				}
 				return { kind: "ffa", ranking, scores: { ...s.progress } };
 			},
@@ -413,6 +436,6 @@
 
 	globalThis.sudokuRules = {
 		CELLS, PEERS, UNITS, LEVELS, LEVEL_IDS, candidates, countSolutions, solve, solvesWithSingles, generate,
-		dailyPuzzle, rngFrom, hashString, toText, fromText, today, clock, standings, clearNotes, empties, race,
+		dailyPuzzle, puzzleFor, rngFrom, hashString, toText, fromText, today, clock, standings, clearNotes, empties, race,
 	};
 })();

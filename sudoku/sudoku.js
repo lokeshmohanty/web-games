@@ -196,7 +196,9 @@ function report() {
 	const right = rightCount();
 	const done = right === empties();
 	if (done && board.solvedMs == null) board.solvedMs = elapsed();
-	arcade.act({ progress: { match: state.match, right, ms: done ? Math.round(board.solvedMs) : null } });
+	// The filled grid goes with the finish: alone, it is the proof the
+	// arcade's server checks before it ranks the time (sudoku-rules.js result).
+	arcade.act({ progress: { match: state.match, right, ms: done ? Math.round(board.solvedMs) : null, ...(done ? { grid: toText(board.entries) } : {}) } });
 }
 
 function place(digit) {

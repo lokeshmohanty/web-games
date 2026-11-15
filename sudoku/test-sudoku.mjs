@@ -204,6 +204,37 @@ console.log("\nthe race, as the platform runs it");
 }
 
 {
+	// The init seed deals the puzzle: the arcade's server issues it for a
+	// ranked solo run, makes the same puzzle from it, and checks the grid.
+	const deal = (seed, level) => {
+		const rules = R.race({ host: () => "me", now: () => 5_000, random: Math.random });
+		rules.init({ seats: [{ id: "me", bot: false }], opts: {}, seed, match: 0 });
+		rules.apply({ action: { start: "new", level }, by: "me" });
+		return rules;
+	};
+	const a = deal(123456, "hard").view({ seat: "me" });
+	const b = deal(123456, "hard").view({ seat: "me" });
+	check("the same seed deals the same puzzle", a.puzzle === b.puzzle && a.level === "hard" && b.level === "hard");
+	check("…which is puzzleFor(seed, level)", a.puzzle === toText(R.puzzleFor(123456, "hard").puzzle) && a.solution === toText(R.puzzleFor(123456, "hard").solution));
+	check("another seed deals another", deal(123457, "hard").view({ seat: "me" }).puzzle !== a.puzzle);
+	check("another level from the same seed is another puzzle", deal(123456, "easy").view({ seat: "me" }).puzzle !== a.puzzle);
+
+	const rules = deal(99, "easy");
+	const v = rules.view({ seat: "me" });
+	rules.apply({ action: { progress: { match: v.match, right: R.empties(v.puzzle), ms: 95_000, grid: v.solution } }, by: "me" });
+	const r = rules.result();
+	check("alone, the result carries the proof: how it was dealt and the solved grid",
+		r?.proof?.start === "new" && r.proof.level === "easy" && r.proof.daily === null && r.proof.grid === v.solution, JSON.stringify(r?.proof));
+
+	const race = R.race({ host: () => "pA", now: () => 5_000 });
+	race.init({ seats: [{ id: "pA", bot: false }, { id: "pB", bot: false }], opts: {}, seed: 7, match: 0 });
+	race.apply({ action: { start: "daily", level: "easy" }, by: "pA" });
+	const rv = race.view({ seat: "pA" });
+	race.apply({ action: { progress: { match: rv.match, right: R.empties(rv.puzzle), ms: 9_000, grid: rv.solution } }, by: "pB" });
+	check("a race's result carries no proof", race.result() && !("proof" in race.result()));
+}
+
+{
 	// A bot races to the end on its own.
 	let t = 0;
 	const rules = R.race({ host: () => "me", now: () => t });
