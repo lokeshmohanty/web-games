@@ -15,6 +15,7 @@
   },
   "bots": false,
   "kind": "ffa",
+  "leaderboard": false,
   "tags": [
     "party"
   ],
