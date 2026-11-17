@@ -210,6 +210,11 @@ style.textContent = `
 	.bs-cell.hit { background: var(--danger); }
 	.bs-cell.sunk { background: color-mix(in oklch, var(--danger) 55%, var(--bg)); }
 	.bs-cell.aim { outline: 2px solid var(--accent); outline-offset: -2px; }
+	/* The latest shot on each board: ringed, with a dot in the corner (a shape,
+	   not colour alone). Every board's history is in order, so it is its last. */
+	.bs-cell.last { position: relative; box-shadow: inset 0 0 0 2px var(--ink); }
+	.bs-cell.last::after { content: ""; position: absolute; top: 2px; right: 2px; width: 18%;
+		aspect-ratio: 1; border-radius: 50%; background: var(--ink); }
 	.bs-label { font-size: 0.62rem; letter-spacing: 0.16em; color: var(--muted);
 		margin-bottom: 2px; }
 	.bs-panel { display: flex; flex-direction: column; align-items: center; width: 100%; }
@@ -266,6 +271,8 @@ const cellsFor = (grid) => {
 };
 const theirCells = cellsFor(theirGrid);
 const myCells = cellsFor(myGrid);
+theirGrid.dataset.board = "theirs";
+myGrid.dataset.board = "mine";
 
 // -------------------------------------------------------------------- state
 
@@ -308,6 +315,14 @@ const isSpectator = () => mySeat() < 0;
 const teamSeats = () => [seatsOf("A")[0] ?? null, seatsOf("B")[0] ?? null];
 
 const shotsAt = (id) => boards[id] ?? [];
+/** The square of the latest shot at `id`'s board, or null. */
+const lastShotAt = (id) => shotsAt(id).at(-1)?.at ?? null;
+/** Mark `cell` as the latest shot on its board, or not; the label says so too. */
+function markLast(cell, r, c, at) {
+	const is = !!at && at[0] === r && at[1] === c;
+	if (is) cell.className += " last";
+	cell.setAttribute("aria-label", `${String.fromCharCode(65 + c)}${r + 1}${is ? ", the last shot" : ""}`);
+}
 const hitsOn = (id) => shotsAt(id).filter((s) => s.hit).length;
 const isDown = (id) => hitsOn(id) >= FLEET_CELLS;
 
@@ -600,6 +615,7 @@ function paintTheirs() {
 	const byCell = new Map(history.map((s) => [key(s.at[0], s.at[1]), s]));
 	const sunkIds = new Set(history.filter((s) => s.sunk).map((s) => s.sunk));
 	const revealed = them && reveals[them] ? reveals[them].fleet : null;
+	const latest = them ? lastShotAt(them) : null;
 
 	for (const cell of theirCells) {
 		const r = +cell.dataset.r;
@@ -620,6 +636,7 @@ function paintTheirs() {
 		}
 		if (aim && aim[0] === r && aim[1] === c) cls += " aim";
 		cell.className = cls;
+		markLast(cell, r, c, latest);
 		cell.textContent = text;
 		cell.disabled = phase !== "fire" || submittedFire || isSpectator() || !!shot;
 	}
@@ -629,6 +646,7 @@ function paintMine() {
 	const history = shotsAt(self());
 	const shotMap = new Map(history.map((s) => [key(s.at[0], s.at[1]), s]));
 	const ghost = phase === "place" && hover ? previewCells() : null;
+	const latest = lastShotAt(self());
 
 	for (const cell of myCells) {
 		const r = +cell.dataset.r;
@@ -647,6 +665,7 @@ function paintMine() {
 		}
 		if (ghost && ghost.cells.some(([gr, gc]) => gr === r && gc === c)) cls += ghost.ok ? " ghost" : " bad";
 		cell.className = cls;
+		markLast(cell, r, c, latest);
 		cell.textContent = text;
 		cell.disabled = phase !== "place";
 	}
@@ -896,6 +915,7 @@ arcade.debug = () => ({
 	myFleetCells: myFleet.flatMap(cellsOf).length,
 	hitsOnMe: hitsOn(self()),
 	shotsAtMe: shotsAt(self()).length,
+	myBoard: shotsAt(self()).map((s) => ({ ...s })),
 	theirBoard: opponent() ? shotsAt(opponent()).map((s) => ({ ...s })) : [],
 	shotsAtThem: opponent() ? shotsAt(opponent()).length : 0,
 	hitsOnThem: opponent() ? hitsOn(opponent()) : 0,
