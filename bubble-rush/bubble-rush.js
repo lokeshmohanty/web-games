@@ -11,11 +11,22 @@
 // ## The clock on a phone
 //
 // Each view carries the host's round time. Between views the phone carries it
-// forward on its own clock, but never more than EXTRA_MS past the last view
-// (so a pause, or a dropped link, freezes the field instead of letting it run
-// on), and never backwards by a small step (a late view would make every
-// bubble twitch down). A tap carries the time it was drawn at: that is what
-// the host judges it against.
+// forward on its own clock, but never more than one tick past the last view
+// for a guest (the most the host lets a guest's tap be ahead of it) or
+// EXTRA_MS for the host's own phone — so a pause, or a dropped link, freezes
+// the field instead of letting it run on — and never backwards by a small
+// step (a late view would make every bubble twitch down).
+//
+// ## What a tap claims
+//
+// The round time of the frame that was on the screen when the finger landed
+// (the event's own timeStamp), and nothing later: that is where the player
+// saw the bubble, and the host judges the tap at that time. Lokesh,
+// 2026-11-17: "most of my taps were missing even though I tapped on the
+// bubble ... I had to tap where it would be in the future". A tap used to
+// claim the clock as the handler ran — after a slow frame, the touch's trip
+// through the browser and any long task on a busy phone, often 100–300 ms
+// later — so the host judged it against a bubble that had risen on.
 
 const R = bubbleRushRules;
 const { ROUND_MS, FRENZY_MS } = R;
@@ -29,7 +40,9 @@ arcade.managed(
 	}),
 );
 
-const EXTRA_MS = 250; // how far past the last view this phone's clock may run (rules AHEAD_MS matches it)
+const EXTRA_MS = 250; // how far past the last view the host's phone may run its clock (rules AHEAD_MS matches it)
+/** How far past the last view this phone may run its clock: a guest one tick (rules GUEST_AHEAD_MS). */
+const extraMs = () => (arcade.isHost() ? EXTRA_MS : R.GUEST_AHEAD_MS);
 const HIDE_MAX_MS = 3000; // a popped bubble stays hidden until the host's word; this long at most, if it is lost
 const TAP_MIN_MS = 80; // one finger, one tap: a bounce is not a second one
 
@@ -125,7 +138,21 @@ const reduced = matchMedia("(prefers-reduced-motion: reduce)");
 let view = null; // the host's last word (bubble-rush-rules.js view)
 let bubbles = []; // view.bubbles, unpacked
 let recvAt = 0; // performance.now() when `view` came
-let clockT = 0; // the round time this phone last drew
+let clockT = 0; // this phone's round clock (now())
+const shown = []; // the frames drawn lately: { at: performance.now(), t: the round time drawn }
+
+/** The round time of the frame on the screen at `when` (performance.now() time): what a finger landing then saw. */
+function seenAt(when) {
+	// A touch with no usable time (0, or not on this page's clock) is judged
+	// on the latest frame drawn, never the oldest one kept.
+	if (!(when > 0 && when <= performance.now())) return shown.at(-1)?.t ?? clockT;
+	let t = shown[0]?.t ?? clockT;
+	for (const f of shown) {
+		if (f.at > when) break;
+		t = f.t;
+	}
+	return t;
+}
 let paused = false; // the host is out of the app (the platform's `paused`)
 let lastSeq = -1; // the last pop shown as an effect
 let lastMatch = null;
@@ -154,7 +181,7 @@ function now() {
 	if (!view) return 0;
 	if (!live()) return view.t;
 	if (paused) return clockT;
-	const target = view.t + Math.min(EXTRA_MS, performance.now() - recvAt);
+	const target = view.t + Math.min(extraMs(), performance.now() - recvAt);
 	// Forward freely; backwards only for a real jump (a takeover, a long stall).
 	if (target >= clockT || clockT - target > 300) clockT = target;
 	return clockT;
@@ -292,6 +319,9 @@ function draw() {
 	const f = size();
 	const t = now();
 	const at = performance.now();
+	// Kept for taps: which round time each frame showed, the last second's worth.
+	shown.push({ at, t });
+	while (shown.length > 2 && at - shown[0].at > 1000) shown.shift();
 	const still = reduced.matches;
 	c2d.clearRect(0, 0, f.w, f.h);
 	if (!view || !arcade.theme) return;
@@ -465,7 +495,9 @@ canvas.addEventListener("pointerdown", (e) => {
 	const at = performance.now();
 	if (at - lastTap < TAP_MIN_MS) return;
 	lastTap = at;
-	const t = now();
+	// The frame the finger landed on, not the clock now: the handler may run
+	// well after the touch on a busy phone, and the bubble has moved on since.
+	const t = seenAt(e.timeStamp);
 	if (stunLeft(mine, t) > 0) return;
 	// The content box: the bounding rect includes the canvas's border.
 	const rect = canvas.getBoundingClientRect();
@@ -513,6 +545,7 @@ function onView(next) {
 	if (fresh) {
 		lastMatch = next.match;
 		hidden.clear();
+		shown.length = 0; // the last round's frames say nothing about this one
 		effects = [];
 		lastSeq = next.phase === "setup" || next.phase === "count" ? 0 : next.seq;
 		clockT = next.t;
