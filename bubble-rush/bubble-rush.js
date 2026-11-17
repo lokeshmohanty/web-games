@@ -143,6 +143,9 @@ const shown = []; // the frames drawn lately: { at: performance.now(), t: the ro
 
 /** The round time of the frame on the screen at `when` (performance.now() time): what a finger landing then saw. */
 function seenAt(when) {
+	// A touch with no usable time (0, or not on this page's clock) is judged
+	// on the latest frame drawn, never the oldest one kept.
+	if (!(when > 0 && when <= performance.now())) return shown.at(-1)?.t ?? clockT;
 	let t = shown[0]?.t ?? clockT;
 	for (const f of shown) {
 		if (f.at > when) break;
