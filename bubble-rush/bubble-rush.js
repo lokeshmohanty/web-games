@@ -476,12 +476,14 @@ function renderSetup() {
 		}
 		parts.push(modes);
 		if (!view.teamsOk) parts.push(el("p", null, "For TEAMS, put players on Team A and Team B in the party."));
+		else if (!view.mode) parts.push(el("p", null, "Pick FREE-FOR-ALL or TEAMS to start."));
 		const start = el("button", "neon-btn neon-btn--accent br-start", "START");
 		start.type = "button";
+		start.disabled = !view.mode;
 		start.onclick = () => arcade.act({ start: true });
 		parts.push(start);
 	} else {
-		parts.push(el("p", null, `${modeLabel(view.mode)} — waiting for ${nameOf(arcade.party?.host)} to start…`));
+		parts.push(el("p", null, view.mode ? `${modeLabel(view.mode)} — waiting for ${nameOf(arcade.party?.host)} to start…` : `${nameOf(arcade.party?.host)} is picking FREE-FOR-ALL or TEAMS…`));
 	}
 	setup.replaceChildren(...parts);
 }

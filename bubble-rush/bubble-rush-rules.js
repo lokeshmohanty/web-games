@@ -339,10 +339,12 @@
 		const nextBot = () => (rnd() < BOT_HESITATE ? between(BOT_HESITATE_MS) : between(BOT_EVERY_MS));
 
 		/**
-		 * The mode the round would be played in: TEAMS needs both sides;
-		 * otherwise the host's pick, or TEAMS if they have not made one.
+		 * The mode the round would be played in: TEAMS needs both sides, so
+		 * without them it is FREE-FOR-ALL; otherwise the host's pick, or null
+		 * until they make one. Lokesh (2026-11-18): the game asks every round,
+		 * with no default and nothing kept from the last one.
 		 */
-		const fitMode = (wanted) => (!teamsOk() ? "ffa" : s.chosen ? wanted : "teams");
+		const fitMode = (wanted) => (!teamsOk() ? "ffa" : wanted);
 
 		/** While the host sets up: the party's sides as they are now. */
 		function resync() {
@@ -457,13 +459,11 @@
 
 		return {
 			init({ seats, seed, match }) {
-				const was = s;
 				s = {
 					match,
 					phase: "setup", // "setup" | "count" | "play" | "over"
 					mode: "ffa",
-					chosen: !!was?.chosen, // the host picked a mode: kept between rounds
-					want: was?.want ?? "teams", // which one they picked
+					want: null, // the host's pick this round: asked anew every round
 					t: -COUNT_MS, // round time: −COUNT_MS through the countdown to ROUND_MS
 					seats: seats.map((p) => ({ id: p.id, name: p.name ?? "Player", team: p.team === "B" ? "B" : "A", bot: !!p.bot })),
 					left: [],
@@ -501,9 +501,9 @@
 						if (action.mode !== "ffa" && action.mode !== "teams") return "no such mode";
 						if (action.mode === "teams" && !teamsOk()) return "TEAMS needs players on Team A and Team B";
 						s.mode = s.want = action.mode;
-						s.chosen = true;
 						return;
 					}
+					if (!s.mode) return "pick FREE-FOR-ALL or TEAMS first";
 					if (!players().length) return "nobody is playing";
 					s.phase = "count";
 					return;

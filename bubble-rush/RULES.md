@@ -3,7 +3,7 @@
 Bubbles rise up one shared field. Tap them to pop them before anyone else does. The best score after sixty seconds wins. Up to eight players; bots can fill the empty seats.
 
 ## How to play
-- Before each round the host picks **FREE-FOR-ALL** or **TEAMS** and taps **START**.
+- Before each round the host picks **FREE-FOR-ALL** or **TEAMS** and taps **START**. The game asks every round; nothing is picked for them. When only one team has players, FREE-FOR-ALL is the only choice.
 - A 3, 2, 1 countdown, then the round runs for 60 seconds.
 - Bubbles rise from the bottom and wobble as they go. Tap one to pop it.
 - The round speeds up as it goes. In the last 10 seconds (**FRENZY**) bubbles come even faster.
