@@ -637,6 +637,15 @@
 			restore({ snapshot }) {
 				s = JSON.parse(JSON.stringify(snapshot));
 				s.taps = {};
+				// From a host on the old rules (before 2026-11-18), whose setup kept a
+				// default of TEAMS: with nothing picked yet, the heir asks instead.
+				if ("chosen" in s) {
+					if (s.phase === "setup" && !s.chosen) {
+						s.want = null;
+						s.mode = teamsOk() ? null : "ffa";
+					}
+					delete s.chosen;
+				}
 			},
 		};
 	}

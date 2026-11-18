@@ -315,6 +315,18 @@ console.log("\nteams: your colour scores, theirs is denied");
 	check("no time passes while the host sets up", (g.tick({ inputs: {}, dt }), g.view({ seat: null }).t === -COUNT_MS));
 }
 
+{
+	// A snapshot from a host on the old rules (a default of TEAMS, `chosen`):
+	// nothing picked there means the heir asks, rather than starting TEAMS.
+	const g = game({ isHost: (id) => id === "host" });
+	g.init({ seats: [person("host", "A"), person("p2", "B")], opts: {}, seed: 1, match: 0 });
+	const old = { ...clone(g.snapshot()), mode: "teams", want: "teams", chosen: false };
+	g.restore({ snapshot: old });
+	check("an old host's unpicked setup, restored: no mode, START waits", g.view({ seat: null }).mode === null && typeof g.apply({ action: { start: true }, by: "host" }) === "string");
+	g.restore({ snapshot: { ...old, mode: "ffa", want: "ffa", chosen: true } });
+	check("…and an old host's pick is kept", g.view({ seat: null }).mode === "ffa" && !("chosen" in g.snapshot()));
+}
+
 console.log("\nthe host judges every tap");
 
 {

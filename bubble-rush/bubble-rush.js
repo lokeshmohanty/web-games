@@ -407,7 +407,8 @@ function renderHud() {
 	const t = now();
 	const left = view.phase === "play" ? Math.max(0, ROUND_MS - t) : view.phase === "over" ? 0 : ROUND_MS;
 	const frenzy = view.phase === "play" && left <= FRENZY_MS;
-	const clockText = `${modeLabel(view.mode)} · ${Math.ceil(left / 1000)}s`;
+	// No mode until the host picks one (asked every round): never name one early.
+	const clockText = `${view.mode ? modeLabel(view.mode) : "PICK A MODE"} · ${Math.ceil(left / 1000)}s`;
 	if (hudClock.textContent !== clockText) hudClock.textContent = clockText;
 	hudClock.classList.toggle("is-frenzy", frenzy);
 	bar.classList.toggle("is-frenzy", frenzy);
@@ -522,6 +523,10 @@ canvas.addEventListener("pointerdown", (e) => {
 
 addEventListener("keydown", (e) => {
 	if (view?.phase !== "setup" || !arcade.isHost()) return;
+	// A focused button (FREE-FOR-ALL, TEAMS) takes its own Space/Enter: this
+	// shortcut cancelling it left a keyboard host unable to pick, so never able to start.
+	if (e.target instanceof Element && e.target.closest("button")) return;
+	if (!view.mode) return;
 	if (e.code === "Space" || e.code === "Enter") {
 		e.preventDefault();
 		arcade.act({ start: true });
