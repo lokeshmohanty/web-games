@@ -219,16 +219,21 @@ style.textContent = `
 		margin-bottom: 2px; }
 	.bs-panel { display: flex; flex-direction: column; align-items: center; width: 100%; }
 	.bs-ships { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+	/* Name over length, so the rack keeps one row on a 354px phone: on two it
+	   took a row's height from the board (squares 40.4px -> 34px at 360x640). */
 	.bs-ship { background: var(--panel); border: 2px solid var(--border);
-		border-radius: 6px; padding: 6px 9px; font-size: 0.75rem; letter-spacing: 0.06em;
-		color: var(--muted); min-height: 44px; cursor: pointer; }
+		border-radius: 6px; padding: 4px 9px; font-size: 0.75rem; letter-spacing: 0.06em;
+		color: var(--muted); min-height: 44px; cursor: pointer; line-height: 1.15;
+		display: flex; flex-direction: column; align-items: center; justify-content: center; }
+	.bs-ship span + span { color: var(--ink-3); }
 	.bs-ship.sel { border-color: var(--accent); color: var(--accent); }
 	.bs-ship.done { opacity: 0.45; }
-	.bs-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
-	.bs-actions .neon-btn { padding: 10px 16px; font-size: 14px;
-		/* Narrower than the default button so three fit on one row of a 390px
-		   screen — but not shorter. Trimming the padding alone took these to
-		   36px, under the tap minimum. */
+	.bs-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+	.bs-actions .neon-btn { padding: 10px; font-size: 14px;
+		/* Narrower than the default button so three fit on one row of a 354px
+		   screen (on two, the row's height came off the board) — but not
+		   shorter. Trimming the padding alone took these to 36px, under the
+		   tap minimum. */
 		min-height: 44px; }
 	.bs-notice { font-size: 0.75rem; color: var(--warn); min-height: 1.2em; text-align: center; }
 	.bs-verdict { font-size: 0.75rem; color: var(--muted); text-align: center;
@@ -690,8 +695,10 @@ function renderControls() {
 		const committed = !!myCommit;
 		for (const spec of FLEET) {
 			const placed = myFleet.some((s) => s.id === spec.id);
-			const btn = el("button", "bs-ship" + (placing === spec.id ? " sel" : "") + (placed ? "" : " done"), `${spec.name} ${spec.len}`);
+			const btn = el("button", "bs-ship" + (placing === spec.id ? " sel" : "") + (placed ? "" : " done"));
 			btn.type = "button";
+			btn.append(el("span", null, spec.name), el("span", null, String(spec.len)));
+			btn.setAttribute("aria-label", `${spec.name}, ${spec.len} squares`);
 			btn.disabled = committed;
 			btn.addEventListener("click", () => {
 				placing = spec.id;
