@@ -197,14 +197,14 @@ const PIPS = ["", "⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
 const style = document.createElement("style");
 style.textContent = `
 	.ld-table { display: flex; flex-wrap: wrap; gap: 6px 12px; justify-content: center;
-		font-size: 0.7rem; letter-spacing: 0.06em; }
+		font-size: 0.75rem; letter-spacing: 0.06em; }
 	.ld-seat { display: flex; align-items: center; gap: 4px; color: var(--muted); }
 	.ld-seat.turn { color: var(--accent); text-shadow: 0 0 8px var(--accent-glow); }
 	.ld-seat.out { opacity: 0.4; text-decoration: line-through; }
 	.ld-cups { letter-spacing: -0.1em; font-size: 0.95rem; color: var(--ink-3); }
 	.ld-bid { font-size: clamp(1.4rem, 7vw, 2.1rem); text-align: center;
 		color: var(--accent); text-shadow: 0 0 14px var(--accent-glow); min-height: 1.4em; }
-	.ld-bid small { display: block; font-size: 0.42em; letter-spacing: 0.14em;
+	.ld-bid small { display: block; font-size: max(0.75rem, 0.42em); letter-spacing: 0.14em;
 		color: var(--muted); text-shadow: none; }
 	.ld-mine { display: flex; gap: 4px; justify-content: center; flex-wrap: wrap;
 		font-size: clamp(2rem, 11vw, 3rem); line-height: 1; color: var(--ink); }
@@ -226,7 +226,7 @@ style.textContent = `
 		font-size: 0.78rem; color: var(--muted); }
 	.ld-reveal .row { display: flex; gap: 6px; align-items: center; }
 	.ld-reveal .dice { font-size: 1.15rem; color: var(--ink); letter-spacing: -0.05em; }
-	.ld-notice { font-size: 0.68rem; color: var(--warn); min-height: 1.2em; text-align: center; }
+	.ld-notice { font-size: 0.75rem; color: var(--warn); min-height: 1.2em; text-align: center; }
 `;
 document.head.append(style);
 

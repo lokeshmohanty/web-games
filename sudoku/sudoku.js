@@ -33,7 +33,7 @@ style.textContent = `
 		width: 100%; max-width: 520px; }
 	.su-race { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; width: 100%; }
 	.su-racer { display: flex; flex-direction: column; gap: 3px; min-width: 76px; flex: 1 1 76px;
-		max-width: 140px; font-size: 0.7rem; color: var(--ink-2); }
+		max-width: 140px; font-size: 0.75rem; color: var(--ink-2); }
 	.su-racer.me { color: var(--accent); }
 	.su-racer span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.su-bar { height: 5px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
@@ -55,14 +55,14 @@ style.textContent = `
 	.su-cell.near { background: var(--surface-2); }
 	.su-cell.same { background: color-mix(in oklch, var(--accent) 16%, transparent); }
 	.su-cell.sel { background: color-mix(in oklch, var(--accent) 32%, transparent); }
-	.su-notes { position: absolute; inset: 2px; display: grid; grid-template-columns: repeat(3, 1fr);
+	.su-notes { position: absolute; inset: 1px; display: grid; grid-template-columns: repeat(3, 1fr);
 		font-size: var(--su-note, 0.55rem); color: var(--ink-2); line-height: 1; }
 	.su-notes span { display: flex; align-items: center; justify-content: center; }
 	.su-pad { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; width: 100%; max-width: 440px; }
 	.su-pad button { min-height: 48px; border-radius: 8px; border: 2px solid var(--rule);
 		background: var(--surface); color: var(--ink); font: inherit; font-size: 1.2rem; cursor: pointer; }
 	.su-pad button:disabled { opacity: 0.35; }
-	.su-pad button.tool { font-size: 0.72rem; letter-spacing: 0.08em; color: var(--ink-2); }
+	.su-pad button.tool { font-size: 0.75rem; letter-spacing: 0.08em; color: var(--ink-2); }
 	.su-pad button.wide { grid-column: 1 / -1; }
 	.su-pad button.on { border-color: var(--accent); color: var(--accent); }
 	.su-msg { min-height: 1.2em; font-size: 0.78rem; color: var(--ink-2); text-align: center; }
@@ -72,7 +72,7 @@ style.textContent = `
 	.su-levels button { min-height: 52px; border-radius: 8px; border: 2px solid var(--rule);
 		background: var(--surface); color: var(--ink); font: inherit; cursor: pointer;
 		display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
-	.su-levels button small { font-size: 0.68rem; color: var(--ink-3); }
+	.su-levels button small { font-size: 0.75rem; color: var(--ink-3); }
 	.su-levels button.on { border-color: var(--accent); color: var(--accent); }
 	.su-go { display: flex; flex-direction: column; gap: 8px; width: 100%; }
 	.su-go .neon-btn { min-height: 48px; width: 100%; }
@@ -387,13 +387,18 @@ function buildPlay() {
 	sizeDigits();
 }
 
-/** Digits scale with the grid, which scales with the phone. */
+/**
+ * Digits scale with the grid, which scales with the phone. A cell is a ninth
+ * of the board — 36px on a 354px phone, 40px at 390 — so the digits placed
+ * fill it and are read; its pencil notes are a 3 x 3 grid inside it, as large
+ * as a third of the cell holds (11px at 36px, 12px at 40px).
+ */
 function sizeDigits() {
 	const grid = wrap.querySelector(".su-grid");
 	if (!grid) return;
 	const cell = grid.clientWidth / 9;
 	grid.style.setProperty("--su-digit", `${Math.round(cell * 0.58)}px`);
-	grid.style.setProperty("--su-note", `${Math.max(8, Math.round(cell * 0.26))}px`);
+	grid.style.setProperty("--su-note", `${Math.max(8, Math.round(cell * 0.3))}px`);
 }
 
 function renderPlay() {

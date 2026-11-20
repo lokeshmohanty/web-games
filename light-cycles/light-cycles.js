@@ -44,7 +44,7 @@ style.textContent = `
 		padding-bottom: 6px; color: color-mix(in oklch, var(--ink) 16%, transparent); font-size: 1.6rem;
 		user-select: none; -webkit-user-select: none; }
 	.lc-scores { display: flex; flex-wrap: wrap; gap: 4px 10px; justify-content: center;
-		font-size: 0.72rem; letter-spacing: 0.06em; }
+		font-size: 0.75rem; letter-spacing: 0.06em; }
 	.lc-scores span { white-space: nowrap; }
 `;
 document.head.append(style);

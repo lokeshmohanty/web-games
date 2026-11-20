@@ -102,21 +102,24 @@ style.textContent = `
         flex-wrap: wrap;
         min-height: 2em;
       }
+      /* 44px to tap (a thumb's floor): the colour is the inner 32px, inside
+         a ring that shows which pen is in hand. */
       .swatch {
-        width: 28px;
-        height: 28px;
+        width: 44px;
+        height: 44px;
+        padding: 3px;
         border-radius: 50%;
-        border: 2px solid transparent;
+        border: 3px solid transparent;
+        background-clip: content-box;
         cursor: pointer;
-        transition: transform 0.1s;
       }
       .swatch.active {
         border-color: var(--ink);
-        transform: scale(1.15);
       }
       .size-btn {
-        width: 28px;
-        height: 28px;
+        width: 44px;
+        height: 44px;
+        padding: 0;
         border-radius: 50%;
         border: 2px solid var(--border);
         background: var(--panel);
@@ -135,9 +138,10 @@ style.textContent = `
       #clear-btn {
         font-size: 0.75rem;
         padding: 6px 12px;
+        min-height: 44px;
       }
       #chat-area {
-        height: 120px;
+        height: 128px;
         display: flex;
         flex-direction: column;
         border: 1px solid var(--border);
@@ -180,6 +184,7 @@ style.textContent = `
         border-radius: 6px;
         color: var(--ink);
         padding: 8px 12px;
+        min-height: 44px;
         font-size: 0.9rem;
         font-family: var(--font);
       }
@@ -192,6 +197,7 @@ style.textContent = `
       }
       #chat-send {
         padding: 8px 16px;
+        min-height: 44px;
       }
 `;
 document.head.append(style);
@@ -405,14 +411,22 @@ function setupDrawing() {
 
 function setupTools() {
 	toolsEl.replaceChildren();
+	const pick = (cls, btn) => {
+		toolsEl.querySelectorAll(cls).forEach((b) => {
+			b.classList.toggle("active", b === btn);
+			b.setAttribute("aria-pressed", String(b === btn));
+		});
+	};
 	PENS.forEach((_, i) => {
-		const sw = document.createElement("div");
+		const sw = document.createElement("button");
+		sw.type = "button";
 		sw.className = "swatch" + (i === drawPen ? " active" : "");
-		sw.style.background = penColor(i);
+		sw.setAttribute("aria-label", `Pen ${i + 1}`);
+		sw.setAttribute("aria-pressed", String(i === drawPen));
+		sw.style.backgroundColor = penColor(i); // not `background`: it would reset the clip
 		sw.onclick = () => {
 			drawPen = i;
-			toolsEl.querySelectorAll(".swatch").forEach((s) => s.classList.remove("active"));
-			sw.classList.add("active");
+			pick(".swatch", sw);
 		};
 		toolsEl.append(sw);
 	});
@@ -422,8 +436,11 @@ function setupTools() {
 	sep.style.background = "var(--border)";
 	toolsEl.append(sep);
 	SIZES.forEach((s) => {
-		const btn = document.createElement("div");
+		const btn = document.createElement("button");
+		btn.type = "button";
 		btn.className = "size-btn" + (s === drawSize ? " active" : "");
+		btn.setAttribute("aria-label", `Brush ${s}px`);
+		btn.setAttribute("aria-pressed", String(s === drawSize));
 		const dot = document.createElement("div");
 		dot.className = "dot";
 		dot.style.width = s + "px";
@@ -431,8 +448,7 @@ function setupTools() {
 		btn.append(dot);
 		btn.onclick = () => {
 			drawSize = s;
-			toolsEl.querySelectorAll(".size-btn").forEach((b) => b.classList.remove("active"));
-			btn.classList.add("active");
+			pick(".size-btn", btn);
 		};
 		toolsEl.append(btn);
 	});

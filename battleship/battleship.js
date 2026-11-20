@@ -199,7 +199,7 @@ style.textContent = `
 		gap: 2px; background: var(--rule); padding: 2px; border-radius: 6px;
 		border: 2px solid var(--rule); touch-action: manipulation; }
 	.bs-cell { aspect-ratio: 1; background: var(--surface-2); border: none; padding: 0;
-		border-radius: 2px; color: var(--muted); font-size: 0.7rem; line-height: 1;
+		border-radius: 2px; color: var(--muted); font-size: 0.8rem; line-height: 1;
 		display: flex; align-items: center; justify-content: center;
 		touch-action: manipulation; cursor: pointer; }
 	.bs-cell:disabled { cursor: default; }
@@ -215,12 +215,12 @@ style.textContent = `
 	.bs-cell.last { position: relative; box-shadow: inset 0 0 0 2px var(--ink); }
 	.bs-cell.last::after { content: ""; position: absolute; top: 2px; right: 2px; width: 18%;
 		aspect-ratio: 1; border-radius: 50%; background: var(--ink); }
-	.bs-label { font-size: 0.62rem; letter-spacing: 0.16em; color: var(--muted);
+	.bs-label { font-size: 0.75rem; letter-spacing: 0.16em; color: var(--muted);
 		margin-bottom: 2px; }
 	.bs-panel { display: flex; flex-direction: column; align-items: center; width: 100%; }
 	.bs-ships { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
 	.bs-ship { background: var(--panel); border: 2px solid var(--border);
-		border-radius: 6px; padding: 6px 9px; font-size: 0.62rem; letter-spacing: 0.1em;
+		border-radius: 6px; padding: 6px 9px; font-size: 0.75rem; letter-spacing: 0.06em;
 		color: var(--muted); min-height: 44px; cursor: pointer; }
 	.bs-ship.sel { border-color: var(--accent); color: var(--accent); }
 	.bs-ship.done { opacity: 0.45; }
@@ -230,8 +230,8 @@ style.textContent = `
 		   screen — but not shorter. Trimming the padding alone took these to
 		   36px, under the tap minimum. */
 		min-height: 44px; }
-	.bs-notice { font-size: 0.68rem; color: var(--warn); min-height: 1.2em; text-align: center; }
-	.bs-verdict { font-size: 0.66rem; color: var(--muted); text-align: center;
+	.bs-notice { font-size: 0.75rem; color: var(--warn); min-height: 1.2em; text-align: center; }
+	.bs-verdict { font-size: 0.75rem; color: var(--muted); text-align: center;
 		max-width: 34ch; }
 `;
 document.head.append(style);
@@ -770,17 +770,28 @@ function renderHud() {
  * Size the two boards. During placement there is only one and it gets
  * everything; in battle the enemy's is the one being aimed at, so it takes the
  * larger share and your own drops to a readable reminder.
+ *
+ * The height they share is what the rest of the column leaves, measured: the
+ * ship rack wraps to two rows on a narrow phone, and at the end the verdict
+ * and NEW GAME sit under both boards (a fixed guess once put NEW GAME off a
+ * 354x696 screen). Width is the phone's: 8 squares of 44px need 374px, so
+ * a 354px phone gets 39.6px squares, 390px and up get 44.
  */
 function layout() {
 	const w = stage.clientWidth;
-	const availH = stage.clientHeight - hud.offsetHeight - 24;
+	const grids = phase === "place" ? [myGrid] : [theirGrid, myGrid];
+	const rest = [...fill.children].filter((n) => !n.hidden && n !== theirPanel && n !== myPanel);
+	const labels = grids.reduce((h, g) => h + g.previousElementSibling.offsetHeight + 2, 0);
+	const gaps = 8 * ([...fill.children].filter((n) => !n.hidden).length - 1);
+	const room = fill.clientHeight - gaps - labels - rest.reduce((h, n) => h + n.offsetHeight, 0);
 	if (phase === "place") {
-		const size = Math.max(200, Math.min(w * 0.96, availH - 160));
+		const size = Math.max(200, Math.min(w * 0.96, room));
 		myGrid.style.width = `${Math.floor(size)}px`;
 	} else {
-		const size = Math.max(180, Math.min(w * 0.96, (availH - 90) * 0.6));
+		// Theirs first (it is aimed at); yours takes what is left, down to half.
+		const size = Math.max(180, Math.min(w * 0.96, room / 1.5));
 		theirGrid.style.width = `${Math.floor(size)}px`;
-		myGrid.style.width = `${Math.floor(Math.min(w * 0.62, size * 0.66))}px`;
+		myGrid.style.width = `${Math.floor(Math.max(90, Math.min(w * 0.62, size * 0.66, room - size)))}px`;
 	}
 }
 
