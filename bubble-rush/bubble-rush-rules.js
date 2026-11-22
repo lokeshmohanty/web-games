@@ -53,6 +53,14 @@
 // their phone already showed, and relays the pop: the bubble goes from
 // everyone else's field with the next view.
 //
+// After a handover the heir's field is respawned from the copy and its ids
+// can drift, so a pop also says the bubble's birth and kind: when the named
+// bubble is not that one, the host takes what was under the finger instead.
+//
+// The round's end: at the bell the field freezes for GRACE_MS, taking taps
+// made by then, and only then ends. Every tap is acknowledged, refused ones
+// too, so a phone always settles on the host's score.
+//
 // Two phones on one bubble: both keep the pop. A bubble popped a moment ago
 // by someone else is still known to the host (`gone`, KEEP_MS), and a second
 // player's pop of it scores for them too. Nothing is taken back from a phone
@@ -91,6 +99,10 @@
 	// pop of it still on its way (a slow link, a busy phone) can be placed.
 	// Bookkeeping, not a judgement: no tap is refused for its time.
 	const KEEP_MS = 3000;
+	// At the bell the field freezes and the round stays open this long, so a
+	// pop a phone made in its last frame (its tap still on the way) is
+	// counted before the end card: nothing a phone showed is taken back.
+	const GRACE_MS = 400;
 	// Spawned this far ahead of their birth, so every phone has a bubble
 	// before it surfaces from below the field.
 	const LEAD_MS = 400;
@@ -397,7 +409,8 @@
 			}
 			const was = s.gone.find((g) => g.b.id === b.id);
 			// The first pop takes it off the field; a second player's pop of
-			// the same bubble (both phones showed it) scores for them as well.
+			// the same bubble (both phones showed it) scores for them as well,
+			// but the round's counts (pops, golden, denied) are of bubbles.
 			if (was) was.by.push(id);
 			else {
 				s.bubbles = s.bubbles.filter((x) => x.id !== b.id);
@@ -407,10 +420,10 @@
 			if (got.kind === "bomb") {
 				s.stats.bombs[id] = (s.stats.bombs[id] ?? 0) + 1;
 			} else {
-				s.pops++;
+				if (!was) s.pops++;
 				s.stats.popped[id] = (s.stats.popped[id] ?? 0) + 1;
-				if (b.k === "g") s.stats.golden++;
-				if (got.kind === "deny") s.stats.denied++;
+				if (!was && b.k === "g") s.stats.golden++;
+				if (!was && got.kind === "deny") s.stats.denied++;
 				if (s.streaks[id] > (s.stats.best[id] ?? 0)) s.stats.best[id] = s.streaks[id];
 			}
 			const at = position(b, clamp(t, b.born, b.born + b.dur));
@@ -431,26 +444,34 @@
 		}
 
 		/**
-		 * A person's tap, already judged on their phone: `{ b, t, n? }`, `b` the
-		 * id of the bubble it popped or null for a miss, `t` the round time the
-		 * finger landed on (x and y ride along for a host on the old rules).
-		 * Taken as said and scored with judgeTap, as the phone scored it; refused
-		 * only when it cannot be placed. Every tap is acknowledged (`n`, in that
-		 * player's view), so their phone knows when the host's score holds it.
+		 * A person's tap, already judged on their phone: `{ b, born?, k?, x, y,
+		 * t, n? }`, `b` the id of the bubble it popped (with its birth and kind)
+		 * or null for a miss, `t` the round time the finger landed on, x and y
+		 * where. Taken as said and scored with judgeTap, as the phone scored it;
+		 * refused only when it cannot be placed. Every tap is acknowledged
+		 * (`n`, in that player's view), refused ones too, so their phone knows
+		 * when the host's score holds it — or that it never will.
 		 */
 		function tap(by, a) {
+			if (Number.isSafeInteger(a.n) && a.n > (s.ack[by] ?? 0)) s.ack[by] = a.n;
 			if (s.phase !== "play") return "the round is not on";
 			if (!seated(by)) return "you are watching";
 			if (typeof a.t !== "number" || !Number.isFinite(a.t)) return "not a tap";
-			if (Number.isSafeInteger(a.n) && a.n > (s.ack[by] ?? 0)) s.ack[by] = a.n;
 			const t = tapTime(a.t);
+			const onField = (x, y) => typeof x === "number" && typeof y === "number";
+			// Still here, or popped a moment ago by someone else (both keep it).
+			const known = [...s.bubbles, ...s.gone.filter((g) => !g.by.includes(by)).map((g) => g.b)];
 			let b = null;
-			if (!("b" in a) && typeof a.x === "number" && typeof a.y === "number") {
+			if (!("b" in a) && onField(a.x, a.y)) {
 				// A phone on the old rules sends only where the finger landed:
 				// the host hit-tests it at that time, as that phone drew it.
 				b = hitTest(s.bubbles, a.x, a.y, t);
 			} else if (a.b != null) {
-				b = s.bubbles.find((x) => x.id === a.b) ?? s.gone.find((g) => g.b.id === a.b && !g.by.includes(by))?.b;
+				b = known.find((x) => x.id === a.b) ?? null;
+				// Not the bubble the phone popped (an heir's ids drift from the old
+				// host's): the one under the finger then, if any.
+				const same = b && (a.born === undefined || b.born === a.born) && (a.k === undefined || b.k === a.k);
+				if (!same) b = onField(a.x, a.y) ? hitTest(known, a.x, a.y, t) : null;
 				// Long gone, or popped by this player already: nothing to place.
 				if (!b) return "that bubble is gone";
 			}
@@ -529,7 +550,15 @@
 			tick({ inputs, dt }) {
 				resync();
 				if (s.phase !== "count" && s.phase !== "play") return;
+				const was = s.t;
 				s.t = Math.min(ROUND_MS, s.t + dt * 1000);
+				// The bell has gone: the field stays frozen for the grace, taking
+				// the taps made by then, and then the round is over.
+				if (was >= ROUND_MS) {
+					s.grace = (s.grace ?? 0) + dt * 1000;
+					if (s.grace >= GRACE_MS - 1e-6) endRound();
+					return;
+				}
 				if (s.phase === "count") {
 					if (s.t < 0) return;
 					s.phase = "play";
@@ -537,7 +566,6 @@
 				}
 				spawn();
 				for (const p of s.seats) if (p.bot && !s.left.includes(p.id)) botTap(p.id, inputs?.[p.id]);
-				if (s.t >= ROUND_MS) endRound();
 			},
 
 			view({ seat }) {
@@ -574,7 +602,7 @@
 
 			/** Only when its next tap is due: what it would tap now. */
 			bot({ seat }) {
-				if (s.phase !== "play" || !seated(seat)) return null;
+				if (s.phase !== "play" || !seated(seat) || s.t >= ROUND_MS) return null;
 				if (s.t < (s.botDue[seat] ?? Infinity) || (s.stun[seat] ?? -Infinity) > s.t) return null;
 				const pick = botPick(s.bubbles, s.t, teamOf(seat), s.mode, rnd);
 				if (!pick) return null;
@@ -669,7 +697,7 @@
 	}
 
 	globalThis.bubbleRushRules = {
-		ROUND_MS, COUNT_MS, FRENZY_MS, HZ, FIELD_ASPECT, SIZES, GOLDEN, BOMB, STREAK_MS, STUN_MS, MAX_MULT, SLACK, KEEP_MS, LEAD_MS,
+		ROUND_MS, COUNT_MS, FRENZY_MS, HZ, FIELD_ASPECT, SIZES, GOLDEN, BOMB, STREAK_MS, STUN_MS, MAX_MULT, SLACK, KEEP_MS, GRACE_MS, LEAD_MS,
 		BOT_EVERY_MS, BOT_REACT_MS, BOT_HESITATE, BOT_HESITATE_MS,
 		rngFrom, riseMs, bombChance, spawnInterval, makeBubble, pack, unpack, progress, position, alive, surfaced, multiplier, popPoints,
 		hitTest, judgeTap, tapTime, teamScores, averages, ranking, teamRanking, botPick, game,

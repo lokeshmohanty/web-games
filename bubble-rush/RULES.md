@@ -4,7 +4,7 @@ Bubbles rise up one shared field. Tap them to pop them before anyone else does. 
 
 ## How to play
 - Before each round the host picks **FREE-FOR-ALL** or **TEAMS** and taps **START**. The game asks every round; nothing is picked for them. When only one team has players, FREE-FOR-ALL is the only choice.
-- A 3, 2, 1 countdown, then the round runs for 60 seconds.
+- A 3, 2, 1 countdown, then the round runs for 60 seconds. At the bell the field freezes for a moment, so a pop you made just in time still counts.
 - Bubbles rise from the bottom and wobble as they go. Tap one to pop it.
 - Your phone decides your tap the moment you make it: the bubble pops, and your points and streak show at once, even on a slow connection. Everyone else sees it go a moment later.
 - The round speeds up as it goes. In the last 10 seconds (**FRENZY**) bubbles come even faster.

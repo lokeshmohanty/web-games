@@ -148,6 +148,10 @@ function still(g, id, x, y, kind = "n", team = null) {
 	const p = (1.08 - y) / 1.16; // where in its flight it is at height y
 	return { id, k: kind, s: kind === "n" ? 0 : null, team, r: size.r, pts: size.pts, born: Math.round(t - p * dur), dur, x0: x, amp: 0, freq: 1, ph: 0 };
 }
+/** The bell and the grace after it (GRACE_MS): tick until the round is over. */
+function bell(g) {
+	for (let i = 0; i < 20 && g.view({ seat: null }).phase !== "over"; i++) g.tick({ inputs: {}, dt });
+}
 function place(g, bubbles) {
 	const s = clone(g.snapshot());
 	s.bubbles = bubbles;
@@ -267,7 +271,7 @@ console.log("\nteams: your colour scores, theirs is denied");
 	s.t = ROUND_MS - 50;
 	s.spawnAt = ROUND_MS;
 	g.restore({ snapshot: s });
-	g.tick({ inputs: {}, dt });
+	bell(g);
 	const r = g.result();
 	check("teams: kind 'teams', the higher average first, each side one place", r?.kind === "teams" && JSON.stringify(r.ranking) === '[["b1"],["host","a2"]]', JSON.stringify(r));
 	check("…with each player's own score", r.scores.host === 30 && r.scores.a2 === 0 && r.scores.b1 === 50);
@@ -469,6 +473,72 @@ console.log("\nthe phone judges its tap, the host takes its word (Lokesh, 2026-1
 	check("the tap's number comes back in that phone's view, with its ledger and counts", v.ack === 6 && v.mine?.misses === 1 && v.mine.popped === 1 && v.mine.streak === 1 && v.mine.lastPop === tapTime(t + 100) && g.view({ seat: "host" }).ack === 0, JSON.stringify({ ack: v.ack, mine: v.mine }));
 }
 
+console.log("\nthe review of 2026-11-22");
+
+{
+	// The round's last moment: a phone pops a bubble in its last frame, but
+	// the host's last tick ends the round before the tap lands. The round is
+	// held open a moment (GRACE_MS, the field frozen at the bell) for taps
+	// made by then, so the end card counts what the phone showed.
+	const g = start([person("host"), person("p2")], null, 1);
+	while (g.snapshot().t < ROUND_MS - 100) g.tick({ inputs: {}, dt });
+	const v = g.view({ seat: "p2" });
+	const t = tapTime(v.t + 60);
+	const b = v.bubbles.map(unpack).find((x) => alive(x, t) && R.surfaced(x, t) && x.k !== "x");
+	const shown = judgeTap({ streak: v.mine.streak, lastPop: v.mine.lastPop, stun: v.mine.stun }, b, t, v.mode, "A").pts;
+	g.tick({ inputs: {}, dt }); // the bell, on the host
+	check("at the bell the round is held open, the field frozen at 60 s", g.view({ seat: null }).phase === "play" && g.view({ seat: null }).t === ROUND_MS && typeof R.GRACE_MS === "number" && R.GRACE_MS >= 300 && R.GRACE_MS <= 500);
+	const said = g.apply({ action: { tap: { b: b.id, born: b.born, k: b.k, t, n: 7 } }, by: "p2" });
+	check("a pop the phone made before the bell, landing after it, counts", said == null && g.view({ seat: "p2" }).scores.p2 === shown && g.view({ seat: "p2" }).ack === 7, JSON.stringify({ said, host: g.view({ seat: null }).scores, shown }));
+	const before = clone(g.snapshot().bubbles);
+	for (let i = 0; i < R.GRACE_MS / 100 - 1; i++) g.tick({ inputs: {}, dt });
+	check("…nothing new rises during the grace, and the clock stays at the bell", g.view({ seat: null }).phase === "play" && g.snapshot().t === ROUND_MS && g.snapshot().bubbles.length <= before.length);
+	g.tick({ inputs: {}, dt });
+	check(`…then, ${R.GRACE_MS} ms on, the round ends, the end card holding that pop`, g.view({ seat: null }).phase === "over" && g.result()?.scores.p2 === shown, JSON.stringify(g.result()?.scores));
+	// Too late even for the grace: refused, but acknowledged, so the phone
+	// settles on the host's score instead of keeping its own for good.
+	const late = g.apply({ action: { tap: { b: null, t: ROUND_MS, n: 8 } }, by: "p2" });
+	check("a tap after the round is over is refused, and still acknowledged", late === "the round is not on" && g.view({ seat: "p2" }).ack === 8);
+	check("…as is a watcher's", typeof g.apply({ action: { tap: { b: null, t: 1, n: 3 } }, by: "spectator" }) === "string" && g.view({ seat: "spectator" }).ack === 3);
+	const mid = start([person("host"), person("p2")]);
+	check("…and, mid-round, a watcher's and one with no usable time", mid.apply({ action: { tap: { b: null, t: 1, n: 4 } }, by: "spectator" }) === "you are watching" && mid.apply({ action: { tap: { t: null, n: 5 } }, by: "p2" }) === "not a tap" && mid.view({ seat: "spectator" }).ack === 4 && mid.view({ seat: "p2" }).ack === 5);
+}
+
+{
+	// No bot taps in the grace either.
+	const g = start([person("host"), robot("bot_1")]);
+	while (g.snapshot().t < ROUND_MS) g.tick({ inputs: {}, dt });
+	check("bots stop at the bell, though the round is held open", g.view({ seat: null }).phase === "play" && g.bot({ seat: "bot_1" }) === null);
+}
+
+{
+	// After a handover the heir's field is its own: the same id may name a
+	// different bubble. A pop carries the bubble's birth and kind, and when
+	// the named one is not it, the heir finds what was under the finger.
+	const g = start([person("host"), person("p2")]);
+	const bomb = still(g, 5, 0.2, 0.3, "x");
+	const there = still(g, 9, 0.6, 0.6);
+	place(g, [bomb, there]);
+	const t = g.snapshot().t;
+	const seen = { ...there, id: 5, born: there.born - 777 }; // what the old host's view called bubble 5
+	const p = position(there, t);
+	g.apply({ action: { tap: { b: 5, born: seen.born, k: "n", x: p.x, y: p.y, t } }, by: "p2" });
+	check("a pop naming an id that is another bubble here scores the one under the finger, not the bomb", g.view({ seat: null }).scores.p2 === 30 && g.snapshot().bubbles.some((x) => x.id === 5) && !g.snapshot().bubbles.some((x) => x.id === 9), JSON.stringify({ scores: g.view({ seat: null }).scores, left: g.snapshot().bubbles.map((x) => x.id) }));
+	place(g, [still(g, 11, 0.5, 0.5)]);
+	const one = g.snapshot().bubbles[0];
+	g.apply({ action: { tap: { b: 11, born: one.born, k: "n", x: 0.01, y: 0.01, t } }, by: "p2" });
+	check("…a pop whose bubble matches is taken by its id, wherever the finger was said to be", !g.snapshot().bubbles.length && g.view({ seat: null }).scores.p2 === 60);
+}
+
+{
+	// Two phones on one bubble: both score, but the end card's counts are of bubbles.
+	const g = start([person("host"), person("p2")]);
+	place(g, [still(g, 1, 0.3, 0.5, "g"), still(g, 2, 0.7, 0.5)]);
+	const t = g.snapshot().t;
+	for (const by of ["host", "p2"]) g.apply({ action: { tap: { b: 1, t } }, by });
+	check("a golden bubble both phones popped: both score it, but it is one bubble popped, one golden caught", g.view({ seat: null }).scores.host === 50 && g.view({ seat: null }).scores.p2 === 50 && g.snapshot().pops === 1 && g.snapshot().stats.golden === 1, JSON.stringify({ pops: g.snapshot().pops, golden: g.snapshot().stats.golden }));
+}
+
 console.log("\nresults: alone, leavers, emptied sides");
 
 {
@@ -479,7 +549,7 @@ console.log("\nresults: alone, leavers, emptied sides");
 	const s = clone(g.snapshot());
 	s.t = ROUND_MS;
 	g.restore({ snapshot: s });
-	g.tick({ inputs: {}, dt });
+	bell(g);
 	const r = g.result();
 	check("alone and below zero: the score reported is 0, the title says what it was", r?.kind === "coop" && r.scores.host === 0 && r.title === "-25 POINTS", JSON.stringify(r && { scores: r.scores, title: r.title }));
 }
@@ -491,7 +561,7 @@ console.log("\nresults: alone, leavers, emptied sides");
 	const s = clone(g.snapshot());
 	s.t = ROUND_MS;
 	g.restore({ snapshot: s });
-	g.tick({ inputs: {}, dt });
+	bell(g);
 	const r = g.result();
 	check("a round begun by two is free-for-all even when one leaves (not a solo run)", r?.kind === "ffa" && JSON.stringify(r.ranking) === '[["host"]]', JSON.stringify(r && { kind: r.kind, ranking: r.ranking }));
 }
@@ -514,7 +584,7 @@ console.log("\nresults: alone, leavers, emptied sides");
 	const s = clone(g.snapshot());
 	s.t = ROUND_MS;
 	g.restore({ snapshot: s });
-	g.tick({ inputs: {}, dt });
+	bell(g);
 	const r = g.result();
 	check("…A still wins, 60 to 30; the leaver is out of the places", r?.kind === "teams" && JSON.stringify(r.ranking) === '[["host"],["b1","b2"]]', JSON.stringify(r && r.ranking));
 }
@@ -528,7 +598,7 @@ console.log("\nresults: alone, leavers, emptied sides");
 	const s = clone(g.snapshot());
 	s.t = ROUND_MS;
 	g.restore({ snapshot: s });
-	g.tick({ inputs: {}, dt });
+	bell(g);
 	const r = g.result();
 	check("Team B emptied but ahead: kind 'teams', titled TEAM B WINS, B's place kept empty first", r?.kind === "teams" && r.title === "TEAM B WINS" && JSON.stringify(r.ranking) === '[[],["host"]]' && r.details[0].value === "Teams", JSON.stringify(r && { kind: r.kind, title: r.title, ranking: r.ranking }));
 }
@@ -542,7 +612,7 @@ console.log("\nresults: alone, leavers, emptied sides");
 	const s = clone(g.snapshot());
 	s.t = ROUND_MS;
 	g.restore({ snapshot: s });
-	g.tick({ inputs: {}, dt });
+	bell(g);
 	const r = g.result();
 	check("Team B emptied and behind: TEAM A WINS, B's place kept empty last", r?.kind === "teams" && r.title === "TEAM A WINS" && JSON.stringify(r.ranking) === '[["host"],[]]', JSON.stringify(r && { title: r.title, ranking: r.ranking }));
 }
@@ -558,7 +628,7 @@ console.log("\nresults: alone, leavers, emptied sides");
 	const s = clone(g.snapshot());
 	s.t = ROUND_MS;
 	g.restore({ snapshot: s });
-	g.tick({ inputs: {}, dt });
+	bell(g);
 	const r = g.result();
 	check("a teams tie with a leaver: one shared place, the leaver in it (a draw)", r?.kind === "teams" && r.title === "A TIE" && JSON.stringify(r.ranking) === '[["host","b1"]]' && r.scores.b1 === 30, JSON.stringify(r && { title: r.title, ranking: r.ranking, scores: r.scores }));
 }
@@ -583,7 +653,7 @@ console.log("\nthe round ends");
 		ticks++;
 	}
 	const v = g.view({ seat: "host" });
-	check(`a round is ${ROUND_MS / 1000} s of ticks`, v.phase === "over" && ticks === ROUND_MS / 100, `${ticks} ticks`);
+	check(`a round is ${ROUND_MS / 1000} s of ticks, and the ${R.GRACE_MS} ms grace after the bell`, v.phase === "over" && ticks === (ROUND_MS + R.GRACE_MS) / 100, `${ticks} ticks`);
 	check("the bots scored", (v.scores.bot_1 ?? 0) > 0 && (v.scores.bot_2 ?? 0) > 0, JSON.stringify(v.scores));
 	const r = g.result();
 	check("free-for-all: kind 'ffa', best first, everyone placed", r?.kind === "ffa" && r.ranking.flat().length === 3 && (r.scores[r.ranking[0][0]] ?? 0) >= (r.scores[r.ranking.at(-1)[0]] ?? 0), JSON.stringify(r?.ranking));
@@ -604,7 +674,7 @@ console.log("\nthe round ends");
 	const s = clone(g.snapshot());
 	s.t = ROUND_MS;
 	g.restore({ snapshot: s });
-	g.tick({ inputs: {}, dt });
+	bell(g);
 	const r = g.result();
 	check("alone: kind 'coop' with the score, titled in points", r?.kind === "coop" && r.scores.host === 50 && r.title === "50 POINTS", JSON.stringify(r));
 }
@@ -619,7 +689,7 @@ console.log("\nthe round ends");
 	const s = clone(g.snapshot());
 	s.t = ROUND_MS;
 	g.restore({ snapshot: s });
-	g.tick({ inputs: {}, dt });
+	bell(g);
 	check("…and they are left out of the places", JSON.stringify(g.result().ranking) === '[["host"]]', JSON.stringify(g.result()));
 }
 
@@ -673,7 +743,7 @@ console.log("\nsnapshot and restore");
 	const s = clone(done.snapshot());
 	s.t = ROUND_MS;
 	done.restore({ snapshot: s });
-	done.tick({ inputs: {}, dt });
+	bell(done);
 	const after = game();
 	after.restore({ snapshot: clone(done.snapshot()) });
 	check("a decided round restores decided, with the same result", JSON.stringify(after.result()) === JSON.stringify(done.result()) && after.result() !== null);

@@ -215,7 +215,8 @@ function now() {
 	if (!view) return 0;
 	if (!live()) return view.t;
 	if (paused) return clockT;
-	const target = view.t + Math.min(EXTRA_MS, performance.now() - recvAt);
+	// Never past the bell: the host holds the field frozen there a moment (rules GRACE_MS).
+	const target = Math.min(ROUND_MS, view.t + Math.min(EXTRA_MS, performance.now() - recvAt));
 	// Forward freely; backwards only for a real jump (a takeover, a long stall).
 	if (target >= clockT || clockT - target > 300) clockT = target;
 	return clockT;
@@ -564,7 +565,8 @@ canvas.addEventListener("pointerdown", (e) => {
 		effectFor({ by: mine, kind: got.kind, k: hit.k, team: hit.team, pts: got.pts, mult: got.mult, x: p.x, y: p.y, r: hit.r });
 	} else effects.push({ x, y, at, ring: true, r: 0.03, colour: "rule" });
 	const r4 = (v) => Math.round(v * 1e4) / 1e4;
-	arcade.act({ tap: { b: hit ? hit.id : null, x: r4(x), y: r4(y), t, n } });
+	// The bubble's birth and kind ride along: an heir's ids can drift from the old host's.
+	arcade.act({ tap: { b: hit ? hit.id : null, ...(hit ? { born: hit.born, k: hit.k } : {}), x: r4(x), y: r4(y), t, n } });
 	// The score and the multiplier in this same task; the field on the next frame.
 	renderHud();
 	wake();
@@ -628,8 +630,9 @@ function onView(next) {
 	// This player's own pops showed as they were tapped.
 	for (const ev of next.events) if (ev.seq > lastSeq && ev.by !== me()) effectFor(ev);
 	lastSeq = Math.max(lastSeq, next.seq);
-	// The host has taken these taps: its score holds them now.
-	pending = pending.filter((p) => p.n > (next.ack ?? 0));
+	// The host has taken these taps: its score holds them now. Once the round
+	// is over its score is final, whatever was still on the way.
+	pending = next.phase === "over" ? [] : pending.filter((p) => p.n > (next.ack ?? 0));
 	if (!pending.length) own = null;
 	// Settled: the bubble is gone from the host's field (ours, or someone's),
 	// or the host took the tap that hid it and kept the bubble (it could not
