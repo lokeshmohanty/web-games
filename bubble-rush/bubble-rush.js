@@ -1,32 +1,36 @@
 // bubble-rush/bubble-rush.js — Bubble Rush. An SDK v2 managed game, ticking.
 //
 // The round is bubble-rush-rules.js `game()`: the platform steps it on the
-// host 10 times a second (its "tick") with the bots' taps, judges every
-// person's tap against the host's own bubbles (`apply`), sends each phone the
+// host 10 times a second (its "tick") with the bots' taps, takes each
+// person's tap as their phone judged it (`apply`), sends each phone the
 // field, pauses everyone while the host is out of the app, reports each round
 // and draws the end card — PLAY AGAIN is the next round, its mode picked
 // again here first. This file is the field: it draws every bubble from its
-// own copy of the round clock at the screen's frame rate, and sends taps.
+// own copy of the round clock at the screen's frame rate, and judges this
+// player's taps.
 //
 // ## The clock on a phone
 //
 // Each view carries the host's round time. Between views the phone carries it
-// forward on its own clock, but never more than one tick past the last view
-// for a guest (the most the host lets a guest's tap be ahead of it) or
-// EXTRA_MS for the host's own phone — so a pause, or a dropped link, freezes
-// the field instead of letting it run on — and never backwards by a small
-// step (a late view would make every bubble twitch down).
+// forward on its own clock, but never more than EXTRA_MS past the last view —
+// so a pause, or a dropped link, freezes the field instead of letting it run
+// on — and never backwards by a small step (a late view would make every
+// bubble twitch down).
 //
-// ## What a tap claims
+// ## A tap is judged here, at once
 //
-// The round time of the frame that was on the screen when the finger landed
-// (the event's own timeStamp), and nothing later: that is where the player
-// saw the bubble, and the host judges the tap at that time. Lokesh,
-// 2026-11-17: "most of my taps were missing even though I tapped on the
-// bubble ... I had to tap where it would be in the future". A tap used to
-// claim the clock as the handler ran — after a slow frame, the touch's trip
-// through the browser and any long task on a busy phone, often 100–300 ms
-// later — so the host judged it against a bubble that had risen on.
+// Lokesh, 2026-11-21: "the tap is registered after a delay costing
+// experience of the game, register whether the tap succeeded on the player's
+// device itself". The finger is hit-tested against the frame that was on the
+// screen when it landed (the event's own timeStamp: Lokesh, 2026-11-17, "I
+// had to tap where it would be in the future" when a tap took the clock as
+// its handler ran, 100–300 ms later on a busy phone), and scored there with
+// the rules' own judgeTap: the bubble goes, the points, the streak and the
+// pop's ring show in that same task, a bomb stuns, a miss breaks the streak.
+// Then the host is told which bubble (or a miss) and when; it scores it the
+// same way and takes the bubble off everyone else's field. Until its view
+// has taken a tap (`ack`), this phone shows its own score as the host's plus
+// what is still on its way, so nothing jumps back when the host catches up.
 
 const R = bubbleRushRules;
 const { ROUND_MS, FRENZY_MS } = R;
@@ -40,10 +44,10 @@ arcade.managed(
 	}),
 );
 
-const EXTRA_MS = 250; // how far past the last view the host's phone may run its clock (rules AHEAD_MS matches it)
-/** How far past the last view this phone may run its clock: a guest one tick (rules GUEST_AHEAD_MS). */
-const extraMs = () => (arcade.isHost() ? EXTRA_MS : R.GUEST_AHEAD_MS);
-const HIDE_MAX_MS = 3000; // a popped bubble stays hidden until the host's word; this long at most, if it is lost
+// How far past the last view this phone may run its clock. Views come every
+// tick (100 ms); this rides out a late one, and a dropped link still
+// freezes the field within a quarter of a second.
+const EXTRA_MS = 250;
 const TAP_MIN_MS = 80; // one finger, one tap: a bounce is not a second one
 
 // ------------------------------------------------------------------ chrome
@@ -157,8 +161,10 @@ let paused = false; // the host is out of the app (the platform's `paused`)
 let lastSeq = -1; // the last pop shown as an effect
 let lastMatch = null;
 let lastTap = 0;
-const hidden = new Map(); // bubble id -> { at, n }: popped here by tap n, until the host's word
-let tapN = 0; // numbers this phone's taps: the host's view says which it has judged
+const hidden = new Map(); // bubble id -> n: popped here by tap n, until the host's view drops it
+let tapN = 0; // numbers this phone's taps: the host's view says which it has taken (`ack`)
+let pending = []; // this phone's taps the host has not taken yet: { n, pts }
+let own = null; // this player's ledger after their latest tap (rules judgeTap), while any is pending
 let effects = []; // { x, y, at, text?, ring?, flash?, r, colour }
 
 const me = () => view?.you ?? null;
@@ -170,10 +176,28 @@ const side = (team) => seats().filter(([, t]) => t === team).map(([id]) => id);
 const modeLabel = (mode) => (mode === "teams" ? "TEAMS" : "FREE-FOR-ALL");
 const live = () => view && (view.phase === "count" || view.phase === "play");
 
-/** A player's streak at round time `t`, from the view's [streak, lastPop]. */
-function streakAt(id, t) {
-	const [streak, last] = view?.st?.[id] ?? [0, null];
-	return last === null || t - last > R.STREAK_MS ? 0 : streak;
+/**
+ * This player's ledger (rules judgeTap: streak, lastPop, stun): their own
+ * judgement while a tap is on its way to the host, the host's once it has
+ * them all. Nobody else's taps change it, so the two agree.
+ */
+function ledger() {
+	if (own && pending.length) return own;
+	const m = view?.mine;
+	if (m && "streak" in m) return { streak: m.streak, lastPop: m.lastPop, stun: m.stun };
+	// A host on the old rules: its view's [streak, lastPop] and the stun left.
+	const [streak, lastPop] = view?.st?.[me()] ?? [0, null];
+	const left = view?.stun?.[me()];
+	return { streak, lastPop, stun: left ? view.t + left : null };
+}
+/** Points this phone has scored that the host's view does not hold yet. */
+const pendingPts = () => pending.reduce((n, p) => n + p.pts, 0);
+/** A player's score as this phone shows it: its own taps count at once. */
+const scoreOf = (id) => (view?.scores?.[id] ?? 0) + (id && id === me() ? pendingPts() : 0);
+/** This player's streak at round time `t`: a pause between pops has broken it. */
+function myStreak(t) {
+	const { streak, lastPop } = ledger();
+	return lastPop == null || t - lastPop > R.STREAK_MS ? 0 : streak;
 }
 
 /** The round time to draw now. */
@@ -181,7 +205,7 @@ function now() {
 	if (!view) return 0;
 	if (!live()) return view.t;
 	if (paused) return clockT;
-	const target = view.t + Math.min(extraMs(), performance.now() - recvAt);
+	const target = view.t + Math.min(EXTRA_MS, performance.now() - recvAt);
 	// Forward freely; backwards only for a real jump (a takeover, a long stall).
 	if (target >= clockT || clockT - target > 300) clockT = target;
 	return clockT;
@@ -252,8 +276,8 @@ function onScreen(b, t, f = size()) {
 	return { px: p.x * f.w, py: p.y * f.h, pr: b.r * f.w };
 }
 
-/** Popped here and not yet settled by the host (its view drops the bubble, or acknowledges the tap). */
-const isHidden = (id, at = performance.now()) => hidden.has(id) && at - hidden.get(id).at < HIDE_MAX_MS;
+/** Popped here and still in the host's view (until the next view drops it). */
+const isHidden = (id) => hidden.has(id);
 
 function drawBubble(b, s, t) {
 	const name = bubbleColour(b);
@@ -336,7 +360,7 @@ function draw() {
 
 	if (view.phase === "play" || view.phase === "over") {
 		for (const b of bubbles) {
-			if (isHidden(b.id, at) || !R.alive(b, t)) continue;
+			if (isHidden(b.id) || !R.alive(b, t)) continue;
 			drawBubble(b, onScreen(b, t, f), t);
 		}
 	}
@@ -380,7 +404,7 @@ function draw() {
 		c2d.font = font(14, "normal");
 		c2d.fillStyle = colour("ink2");
 		c2d.fillText(modeLabel(view.mode), f.w / 2, f.h / 2 + Math.min(f.w, f.h) * 0.2);
-	} else if (view.phase === "play" && mine && stunLeft(mine, t) > 0) {
+	} else if (view.phase === "play" && mine && stunLeft(t) > 0) {
 		c2d.fillStyle = colour("danger", 0.12);
 		c2d.fillRect(0, 0, f.w, f.h);
 		c2d.font = font(22);
@@ -393,10 +417,10 @@ function draw() {
 	}
 }
 
-/** How long `id` stays stunned at round time `t`, from the view. */
-function stunLeft(id, t) {
-	const left = view?.stun?.[id];
-	return left ? left - (t - view.t) : 0;
+/** How long this player stays stunned at round time `t`. */
+function stunLeft(t) {
+	const until = ledger().stun;
+	return until == null ? 0 : until - t;
 }
 
 // -------------------------------------------------------------------- HUD
@@ -415,13 +439,13 @@ function renderHud() {
 	barFill.style.width = `${(left / ROUND_MS) * 100}%`;
 
 	const mine = me();
-	const meText = mine ? String(view.scores[mine] ?? 0) : "WATCHING";
-	const multText = mine && view.phase === "play" ? `×${R.multiplier(streakAt(mine, t))}` : "";
+	const meText = mine ? String(scoreOf(mine)) : "WATCHING";
+	const multText = mine && view.phase === "play" ? `×${R.multiplier(myStreak(t))}` : "";
 	if (hudMe.textContent !== meText) hudMe.textContent = meText;
 	if (hudMult.textContent !== multText) hudMult.textContent = multText;
 
 	// The scoreboard changes only when someone scores; rebuilt only then.
-	const key = JSON.stringify([view.mode, view.scores, view.seats, mine, arcade.theme?.name, arcade.party?.members.length]);
+	const key = JSON.stringify([view.mode, view.scores, pendingPts(), view.seats, mine, arcade.theme?.name, arcade.party?.members.length]);
 	if (key === lastBoard) return;
 	lastBoard = key;
 	const chip = (text, name, isMe) => {
@@ -432,13 +456,16 @@ function renderHud() {
 	if (view.mode === "teams") {
 		const a = side("A");
 		const b = side("B");
-		const ts = view.avg ?? R.teamScores(view.scores, a, b);
+		const ts = { ...(view.avg ?? R.teamScores(view.scores, a, b)) };
+		// This phone's own points still on their way count for its side now.
+		const myTeam = teamOf(mine);
+		if (myTeam && pendingPts()) ts[myTeam] += pendingPts() / Math.max(1, view.avgOf?.[myTeam] ?? side(myTeam).length);
 		const [ta, tb] = R.averages(ts.A, ts.B);
 		board.replaceChildren(chip(`TEAM A ${ta} (${view.avgOf?.A ?? a.length})`, "accent", teamOf(mine) === "A"), chip(`TEAM B ${tb} (${view.avgOf?.B ?? b.length})`, "accent2", teamOf(mine) === "B"));
 	} else {
 		const ids = seats().map(([id]) => id);
-		const order = [...ids].sort((x, y) => (view.scores[y] ?? 0) - (view.scores[x] ?? 0));
-		board.replaceChildren(...order.map((id) => chip(`${nameOf(id)} ${view.scores[id] ?? 0}`, ids.indexOf(id), id === mine)));
+		const order2 = [...ids].sort((x, y) => scoreOf(y) - scoreOf(x));
+		board.replaceChildren(...order2.map((id) => chip(`${nameOf(id)} ${scoreOf(id)}`, ids.indexOf(id), id === mine)));
 	}
 }
 
@@ -500,25 +527,34 @@ canvas.addEventListener("pointerdown", (e) => {
 	lastTap = at;
 	// The frame the finger landed on, not the clock now: the handler may run
 	// well after the touch on a busy phone, and the bubble has moved on since.
-	const t = seenAt(e.timeStamp);
-	if (stunLeft(mine, t) > 0) return;
+	const t = R.tapTime(seenAt(e.timeStamp));
 	// The content box: the bounding rect includes the canvas's border.
 	const rect = canvas.getBoundingClientRect();
 	const f = size();
 	const x = (e.clientX - rect.left - canvas.clientLeft) / f.w;
 	const y = (e.clientY - rect.top - canvas.clientTop) / f.h;
-	const n = ++tapN;
-	// Popped here at once; the host's word confirms it, or the bubble comes back.
 	const hit = R.hitTest(
-		bubbles.filter((b) => !isHidden(b.id, at)),
+		bubbles.filter((b) => !isHidden(b.id)),
 		x,
 		y,
 		t,
 	);
-	if (hit) hidden.set(hit.id, { at, n });
-	else effects.push({ x, y, at, ring: true, r: 0.03, colour: "rule" });
+	// Judged here, now: the host scores it the same way when it arrives.
+	const got = R.judgeTap(ledger(), hit, t, view.mode, teamOf(mine));
+	if (!got) return; // stunned: the tap does nothing
+	const n = ++tapN;
+	own = got.me;
+	pending.push({ n, pts: got.pts });
+	if (hit) {
+		hidden.set(hit.id, n);
+		const p = R.position(hit, Math.max(hit.born, Math.min(hit.born + hit.dur, t)));
+		effectFor({ by: mine, kind: got.kind, k: hit.k, team: hit.team, pts: got.pts, mult: got.mult, x: p.x, y: p.y, r: hit.r });
+	} else effects.push({ x, y, at, ring: true, r: 0.03, colour: "rule" });
 	const r4 = (v) => Math.round(v * 1e4) / 1e4;
-	arcade.act({ tap: { x: r4(x), y: r4(y), t: Math.round(t), n } });
+	arcade.act({ tap: { b: hit ? hit.id : null, x: r4(x), y: r4(y), t, n } });
+	// The score and the multiplier in this same task; the field on the next frame.
+	renderHud();
+	wake();
 });
 
 addEventListener("keydown", (e) => {
@@ -552,6 +588,8 @@ function onView(next) {
 	if (fresh) {
 		lastMatch = next.match;
 		hidden.clear();
+		pending = [];
+		own = null;
 		shown.length = 0; // the last round's frames say nothing about this one
 		effects = [];
 		lastSeq = next.phase === "setup" || next.phase === "count" ? 0 : next.seq;
@@ -568,11 +606,16 @@ function onView(next) {
 	view = next;
 	recvAt = performance.now();
 	bubbles = next.bubbles.map(R.unpack);
-	for (const ev of next.events) if (ev.seq > lastSeq) effectFor(ev);
+	// This player's own pops showed as they were tapped.
+	for (const ev of next.events) if (ev.seq > lastSeq && ev.by !== me()) effectFor(ev);
 	lastSeq = Math.max(lastSeq, next.seq);
-	// Settled: the bubble is gone (ours, or someone's), or the host judged the
-	// tap that hid it and the bubble is still there (a miss, or refused).
-	for (const [id, h] of hidden) if (!bubbles.some((b) => b.id === id) || (next.ack ?? 0) >= h.n) hidden.delete(id);
+	// The host has taken these taps: its score holds them now.
+	pending = pending.filter((p) => p.n > (next.ack ?? 0));
+	if (!pending.length) own = null;
+	// Settled: the bubble is gone from the host's field (ours, or someone's),
+	// or the host took the tap that hid it and kept the bubble (it could not
+	// place the pop): then it shows again.
+	for (const [id, n] of hidden) if (!bubbles.some((b) => b.id === id) || (next.ack ?? 0) >= n) hidden.delete(id);
 	renderSetup();
 	wake();
 }
@@ -612,14 +655,18 @@ arcade.debug = () => {
 		paused,
 		turnUpright: !turn.hidden,
 		scores: { ...(view?.scores ?? {}) },
+		// What this phone shows for this player: the host's score plus its own taps still on their way.
+		score: mine ? scoreOf(mine) : 0,
+		pending: pending.length,
 		teamScores: view?.avg ?? R.teamScores(view?.scores ?? {}, side("A"), side("B")),
 		popped: { ...(view?.popped ?? {}) },
 		misses: view?.mine?.misses ?? 0,
 		ack: view?.ack ?? 0,
 		taps: tapN,
 		seq: view?.seq ?? 0,
-		streak: mine ? streakAt(mine, t) : 0,
-		stunned: mine ? stunLeft(mine, t) > 0 : false,
+		streak: mine ? myStreak(t) : 0,
+		stunned: mine ? stunLeft(t) > 0 : false,
+		effects: effects.length,
 		field: f,
 		bubbles: bubbles
 			.filter((b) => R.alive(b, t) && R.surfaced(b, t) && !isHidden(b.id))

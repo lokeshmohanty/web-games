@@ -38,19 +38,28 @@
 // a bubble: the review of 2026-11-15 found that a claimed field size let a
 // phone double a bubble's reach.
 //
-// ## Who popped what: the host decides
+// ## Who popped what: the tapping phone decides
 //
-// A phone sends where the finger landed, as fractions of the field, and the
-// round time it was drawing — never which bubble it thinks it hit. The host
-// puts every bubble where it was at that time and takes the nearest one under
-// the finger, a fingertip's slack around it. The time is trusted only within
-// a window: up to half a second behind the host's clock (the view's trip out,
-// the tap's trip back), and at most a tick ahead (every phone runs its clock
-// on between views; the host's own seat a little more). A player's taps
-// never go back in time, a bubble not yet born or still below the field at
-// that time cannot be hit (the views carry bubbles before they surface: the
-// review found them sniped before birth), a tap on a bubble someone popped
-// first is refused without penalty, and a tap on empty field is a miss.
+// Lokesh, 2026-11-21: "the tap is registered after a delay costing
+// experience of the game, register whether the tap succeeded on the player's
+// device itself". So a tap is judged where it lands: the phone hit-tests the
+// finger against the frame it was showing (`hitTest`), and scores it at once
+// with `judgeTap` — the pop, the points, the streak, a bomb's stun, a miss
+// breaking the streak — then tells the host which bubble it popped (or that
+// it missed) and at what round time. The host takes its word: no window, no
+// check that the finger was on the bubble (casual play among friends: the
+// arcade does not spend a player's time on anti-cheat). It runs the same
+// `judgeTap` on the same numbers, so its score for that player is the one
+// their phone already showed, and relays the pop: the bubble goes from
+// everyone else's field with the next view.
+//
+// Two phones on one bubble: both keep the pop. A bubble popped a moment ago
+// by someone else is still known to the host (`gone`, KEEP_MS), and a second
+// player's pop of it scores for them too. Nothing is taken back from a phone
+// that showed a pop, so nobody sees points vanish; the cost is a bubble that
+// once in a while scores twice, which a casual round can afford. A pop the
+// host cannot place at all (the bubble long gone, the round over, a watcher)
+// is refused, and that phone's score quietly settles on the host's.
 
 (() => {
 	const ROUND_MS = 60_000;
@@ -76,19 +85,12 @@
 	const STUN_MS = 1200;
 	const MAX_MULT = 5;
 
-	// Taps, judged on the host.
-	const LAG_MS = 500; // how far behind the host's clock a tap may say it was made
-	// And ahead. Every phone carries the clock on between views while the
-	// host's moves once a tick, so a tap made late in a tick is ahead of the
-	// host's clock by up to a tick less the round trip: a guest may claim one
-	// tick ahead (judged at s.t, a centred tap on a quick golden bubble missed
-	// one time in six — re-review, 2026-11-15). The host's own seat may claim
-	// up to bubble-rush.js EXTRA_MS (250), how far its phone runs on.
-	const AHEAD_MS = 250;
-	const GUEST_AHEAD_MS = 1000 / HZ;
+	// Taps, judged on the tapping phone.
 	const SLACK = 0.03; // a fingertip is not a point: a fraction of the field's width (~11 px on a phone)
-	const EDGE = 0.01; // how far outside the field a tap may land and still count as on it
-	const TAPS_PER_TICK = 3; // per player: a double tap is fine, a flood is not
+	// How long the host keeps a bubble after it escaped or was popped, so a
+	// pop of it still on its way (a slow link, a busy phone) can be placed.
+	// Bookkeeping, not a judgement: no tap is refused for its time.
+	const KEEP_MS = 3000;
 	// Spawned this far ahead of their birth, so every phone has a bubble
 	// before it surfaces from below the field.
 	const LEAD_MS = 400;
@@ -224,8 +226,7 @@
 	 * The bubble under a finger at (x, y) — fractions of the field — at round
 	 * time `t`: the nearest one on the field within its radius and a
 	 * fingertip's slack, or null. Distances are in field widths, the field's
-	 * shape being fixed. The host judges taps with this; a phone uses the same
-	 * to pop its own bubble at once while the host's word is on its way.
+	 * shape being fixed. The tapping phone judges its own tap with this.
 	 */
 	function hitTest(bubbles, x, y, t) {
 		let hit = null;
@@ -241,6 +242,29 @@
 		}
 		return hit;
 	}
+
+	/**
+	 * One tap, judged: by the tapping phone at once, and by the host again
+	 * with the same numbers, so both come to the same score. `me` is that
+	 * player's own ledger, { streak, lastPop, stun } (their streak as it was
+	 * last set, the round time of their last pop, and when a bomb's stun ends:
+	 * nobody else's taps change it); `b` the bubble popped, or null for a miss;
+	 * `t` the round time the finger landed on; `team` the tapper's side.
+	 * Returns null while stunned (the tap does nothing), else { kind: "pop" |
+	 * "deny" | "bomb" | "miss", pts, mult, me: the ledger after it }.
+	 */
+	function judgeTap(me, b, t, mode, team) {
+		if ((me.stun ?? -Infinity) > t) return null;
+		// A pause between pops has broken the streak by now.
+		const streak = t - (me.lastPop ?? -Infinity) > STREAK_MS ? 0 : (me.streak ?? 0);
+		if (!b) return { kind: "miss", pts: 0, mult: 1, me: { ...me, streak: 0 } };
+		const got = popPoints(b, mode, team, streak);
+		if (got.kind === "bomb") return { ...got, me: { ...me, streak: 0, stun: t + STUN_MS } };
+		return { ...got, me: { ...me, streak: streak + 1, lastPop: t } };
+	}
+
+	/** The round time a tap names, kept on the round: the phone sends it so, the host reads it so. */
+	const tapTime = (t) => Math.round(clamp(t, 0, ROUND_MS));
 
 	/** A team's score is its players' average, so a small side is not simply outnumbered. */
 	function teamScores(scores, seatsA, seatsB) {
@@ -297,8 +321,8 @@
 	//
 	// SDK v2 managed state with a fixed tick. The platform calls `tick` HZ
 	// times a second on the host, with each bot's latest input (`bot()`); a
-	// person's tap is an action (`apply`), judged against the host's own
-	// bubbles. Time is the tick's `dt`: no clock is read, so a host out of the
+	// person's tap is an action (`apply`), already judged on their phone.
+	// Time is the tick's `dt`: no clock is read, so a host out of the
 	// app (the platform stops ticking) stops spawns, bots, stuns and the
 	// countdown at once, and a snapshot carries the whole round to the heir.
 
@@ -331,8 +355,8 @@
 		const teamsOk = () => side("A").length > 0 && side("B").length > 0;
 		const players = () => s.seats.filter((p) => !s.left.includes(p.id)).map((p) => p.id);
 		const nameOf = (id) => s.seats.find((p) => p.id === id)?.name ?? "Player";
-		/** A player's streak as it stands at `t` — a pause between pops has broken it. */
-		const streakAt = (id, t) => (t - (s.lastPop[id] ?? -Infinity) > STREAK_MS ? 0 : (s.streaks[id] ?? 0));
+		/** A player's own ledger, as judgeTap takes it. */
+		const ledger = (id) => ({ streak: s.streaks[id] ?? 0, lastPop: s.lastPop[id] ?? null, stun: s.stun[id] ?? null });
 		const rnd = () => nextRandom(s);
 		const between = ([lo, hi]) => lo + rnd() * (hi - lo);
 		/** A bot's next tap: its usual beat, or now and then a lapse long enough to break its streak. */
@@ -356,35 +380,43 @@
 			s.mode = fitMode(s.want);
 		}
 
-		/** Pop `b` for `id`, now (host round time). The one place scores change. */
-		function pop(id, b) {
-			const streak = streakAt(id, s.t);
-			const got = popPoints(b, s.mode, teamOf(id), streak);
-			s.bubbles = s.bubbles.filter((x) => x !== b);
-			s.gone.push({ b, at: s.t });
+		/**
+		 * `id` pops `b` (or misses: b null) at round time `t` — a bot now, a
+		 * person when their finger landed. The one place scores change. False
+		 * when it did nothing (stunned).
+		 */
+		function score(id, b, t) {
+			const got = judgeTap(ledger(id), b, t, s.mode, teamOf(id));
+			if (!got) return false;
+			s.streaks[id] = got.me.streak;
+			s.lastPop[id] = got.me.lastPop;
+			s.stun[id] = got.me.stun;
+			if (!b) {
+				s.stats.misses[id] = (s.stats.misses[id] ?? 0) + 1;
+				return true;
+			}
+			const was = s.gone.find((g) => g.b.id === b.id);
+			// The first pop takes it off the field; a second player's pop of
+			// the same bubble (both phones showed it) scores for them as well.
+			if (was) was.by.push(id);
+			else {
+				s.bubbles = s.bubbles.filter((x) => x.id !== b.id);
+				s.gone.push({ b, at: s.t, by: [id] });
+			}
 			s.scores[id] = (s.scores[id] ?? 0) + got.pts;
 			if (got.kind === "bomb") {
-				s.streaks[id] = 0;
-				s.stun[id] = s.t + STUN_MS;
 				s.stats.bombs[id] = (s.stats.bombs[id] ?? 0) + 1;
 			} else {
-				s.streaks[id] = streak + 1;
-				s.lastPop[id] = s.t;
 				s.pops++;
 				s.stats.popped[id] = (s.stats.popped[id] ?? 0) + 1;
 				if (b.k === "g") s.stats.golden++;
 				if (got.kind === "deny") s.stats.denied++;
 				if (s.streaks[id] > (s.stats.best[id] ?? 0)) s.stats.best[id] = s.streaks[id];
 			}
-			const at = position(b, clamp(s.t, b.born, b.born + b.dur));
+			const at = position(b, clamp(t, b.born, b.born + b.dur));
 			const ev = { seq: ++s.seq, by: id, kind: got.kind, k: b.k, team: b.team, pts: got.pts, mult: got.mult, x: round4(at.x), y: round4(at.y), r: b.r };
 			s.events = [...s.events.slice(-11), ev];
-		}
-
-		/** A miss: the streak breaks, nothing else. */
-		function miss(id) {
-			s.streaks[id] = 0;
-			s.stats.misses[id] = (s.stats.misses[id] ?? 0) + 1;
+			return true;
 		}
 
 		function spawn() {
@@ -393,51 +425,36 @@
 				s.bubbles.push(makeBubble(rnd, s.nextId++, s.spawnAt, s.mode));
 				s.spawnAt += spawnInterval(s.spawnAt, n);
 			}
-			// Kept a little past the top: a tap made as one escaped may still be on its way.
-			s.bubbles = s.bubbles.filter((b) => b.born > s.t || s.t - (b.born + b.dur) <= LAG_MS);
-			s.gone = s.gone.filter((g) => s.t - g.at <= LAG_MS + AHEAD_MS);
+			// Kept a while past the top: a pop of one as it escaped may still be on its way.
+			s.bubbles = s.bubbles.filter((b) => b.born > s.t || s.t - (b.born + b.dur) <= KEEP_MS);
+			s.gone = s.gone.filter((g) => s.t - g.at <= KEEP_MS);
 		}
 
 		/**
-		 * The host's word on a person's tap `{ x, y, t, n? }`: nothing (popped
-		 * or missed), or why it was refused. Every judged tap is acknowledged
-		 * (`n`, in that player's view), so their phone knows when to stop
-		 * hiding a bubble it popped on its own.
+		 * A person's tap, already judged on their phone: `{ b, t, n? }`, `b` the
+		 * id of the bubble it popped or null for a miss, `t` the round time the
+		 * finger landed on (x and y ride along for a host on the old rules).
+		 * Taken as said and scored with judgeTap, as the phone scored it; refused
+		 * only when it cannot be placed. Every tap is acknowledged (`n`, in that
+		 * player's view), so their phone knows when the host's score holds it.
 		 */
 		function tap(by, a) {
 			if (s.phase !== "play") return "the round is not on";
 			if (!seated(by)) return "you are watching";
-			const { x, y, t } = a;
-			if (![x, y, t].every((v) => typeof v === "number" && Number.isFinite(v))) return "not a tap";
+			if (typeof a.t !== "number" || !Number.isFinite(a.t)) return "not a tap";
 			if (Number.isSafeInteger(a.n) && a.n > (s.ack[by] ?? 0)) s.ack[by] = a.n;
-			if ((s.stun[by] ?? -Infinity) > s.t) return "stunned";
-			if (x < -EDGE || x > 1 + EDGE || y < -EDGE || y > 1 + EDGE) return "not on the field";
-			if ((s.taps[by] ?? 0) >= TAPS_PER_TICK) return "too fast";
-			s.taps[by] = (s.taps[by] ?? 0) + 1;
-			// When the phone drew what was tapped: trusted only within the
-			// window — up to LAG_MS behind the host's clock, a tick ahead for a
-			// guest (the host's own seat: AHEAD_MS) — and never earlier than this
-			// player's last tap.
-			//
-			// Accepted, as lag compensation: a modified client may pick any time
-			// in that window for each tap (its choice only moves forward), so it
-			// can aim at where a bubble was up to half a second ago. It cannot
-			// name a bubble, reach one that was never under the finger in that
-			// window, or reach one before it is born and on the field.
-			const ahead = isHost(by) ? AHEAD_MS : GUEST_AHEAD_MS;
-			const when = Math.max(clamp(t, Math.max(0, s.t - LAG_MS), s.t + ahead), s.lastT[by] ?? -Infinity);
-			s.lastT[by] = when;
-			// Only bubbles born by that time, and (hitTest) on the field then:
-			// the views carry bubbles before they surface. An unborn bubble is
-			// in reach only if it surfaces within a tick of its birth.
-			const live = s.bubbles.filter((b) => b.born <= when);
-			const gone = s.gone.map((g) => g.b);
-			const b = hitTest([...live, ...gone], x, y, when);
-			if (b && live.includes(b)) return void pop(by, b);
-			// The nearest bubble under the finger went to someone a moment before
-			// (or to this phone's own earlier tap): no penalty.
-			if (b) return "someone popped it first";
-			miss(by);
+			const t = tapTime(a.t);
+			let b = null;
+			if (!("b" in a) && typeof a.x === "number" && typeof a.y === "number") {
+				// A phone on the old rules sends only where the finger landed:
+				// the host hit-tests it at that time, as that phone drew it.
+				b = hitTest(s.bubbles, a.x, a.y, t);
+			} else if (a.b != null) {
+				b = s.bubbles.find((x) => x.id === a.b) ?? s.gone.find((g) => g.b.id === a.b && !g.by.includes(by))?.b;
+				// Long gone, or popped by this player already: nothing to place.
+				if (!b) return "that bubble is gone";
+			}
+			if (!score(by, b, t)) return "stunned";
 		}
 
 		function endRound() {
@@ -451,10 +468,10 @@
 			s.botN[id] = inp.n;
 			s.botDue[id] = s.t + nextBot();
 			if ((s.stun[id] ?? -Infinity) > s.t) return;
-			if (inp.miss) return miss(id);
+			if (inp.miss) return void score(id, null, s.t);
 			const b = s.bubbles.find((x) => x.id === inp.b);
 			// Gone by the time it landed (someone else's, or escaped): a bot just tries again.
-			if (b && alive(b, s.t)) pop(id, b);
+			if (b && alive(b, s.t)) score(id, b, s.t);
 		}
 
 		return {
@@ -468,22 +485,20 @@
 					seats: seats.map((p) => ({ id: p.id, name: p.name ?? "Player", team: p.team === "B" ? "B" : "A", bot: !!p.bot })),
 					left: [],
 					bubbles: [],
-					gone: [], // popped a moment ago: { b, at }
+					gone: [], // popped a moment ago: { b, at, by: [who popped it] }
 					nextId: 1,
 					spawnAt: 0,
 					scores: {},
 					streaks: {},
 					lastPop: {},
 					stun: {},
-					taps: {}, // taps this tick, per player
 					events: [], // the last few pops, for effects on every phone
 					seq: 0,
 					pops: 0,
 					stats: { popped: {}, best: {}, bombs: {}, misses: {}, golden: 0, denied: 0 },
 					botDue: {},
 					botN: {},
-					lastT: {}, // per player: the time their last tap was judged at (taps never go back)
-					ack: {}, // per player: the number of their last judged tap
+					ack: {}, // per player: the number of their last tap taken
 					alone: seats.length === 1 && !seats[0].bot, // played alone from the start: a solo run
 					rng: seed >>> 0,
 				};
@@ -515,7 +530,6 @@
 				resync();
 				if (s.phase !== "count" && s.phase !== "play") return;
 				s.t = Math.min(ROUND_MS, s.t + dt * 1000);
-				s.taps = {};
 				if (s.phase === "count") {
 					if (s.t < 0) return;
 					s.phase = "play";
@@ -545,9 +559,10 @@
 					events: s.events,
 					seq: s.seq,
 					you: seat && seated(seat) ? seat : null,
-					// This seat's own count: its last judged tap, pops, misses, bombs.
+					// This seat's own: its last tap taken, its ledger (its phone
+					// carries it on from here between taps), pops, misses, bombs.
 					ack: (seat && s.ack[seat]) || 0,
-					mine: seat ? { popped: s.stats.popped[seat] ?? 0, misses: s.stats.misses[seat] ?? 0, bombs: s.stats.bombs[seat] ?? 0 } : null,
+					mine: seat ? { ...ledger(seat), popped: s.stats.popped[seat] ?? 0, misses: s.stats.misses[seat] ?? 0, bombs: s.stats.bombs[seat] ?? 0 } : null,
 					popped: { ...s.stats.popped },
 					// Team averages, leavers' scores included (they still count for their side).
 					...(s.mode === "teams" ? { avg: teamScores(s.scores, sideAll("A"), sideAll("B")), avgOf: { A: sideAll("A").length, B: sideAll("B").length } } : {}),
@@ -636,7 +651,10 @@
 			snapshot: () => s,
 			restore({ snapshot }) {
 				s = JSON.parse(JSON.stringify(snapshot));
-				s.taps = {};
+				// From a host on the old rules: who popped what was not kept.
+				for (const g of s.gone ?? []) g.by ??= [];
+				delete s.taps;
+				delete s.lastT;
 				// From a host on the old rules (before 2026-11-18), whose setup kept a
 				// default of TEAMS: with nothing picked yet, the heir asks instead.
 				if ("chosen" in s) {
@@ -651,9 +669,9 @@
 	}
 
 	globalThis.bubbleRushRules = {
-		ROUND_MS, COUNT_MS, FRENZY_MS, HZ, FIELD_ASPECT, SIZES, GOLDEN, BOMB, STREAK_MS, STUN_MS, MAX_MULT, LAG_MS, AHEAD_MS, GUEST_AHEAD_MS, SLACK, EDGE, LEAD_MS,
-		BOT_EVERY_MS, BOT_REACT_MS, BOT_HESITATE, BOT_HESITATE_MS, TAPS_PER_TICK,
+		ROUND_MS, COUNT_MS, FRENZY_MS, HZ, FIELD_ASPECT, SIZES, GOLDEN, BOMB, STREAK_MS, STUN_MS, MAX_MULT, SLACK, KEEP_MS, LEAD_MS,
+		BOT_EVERY_MS, BOT_REACT_MS, BOT_HESITATE, BOT_HESITATE_MS,
 		rngFrom, riseMs, bombChance, spawnInterval, makeBubble, pack, unpack, progress, position, alive, surfaced, multiplier, popPoints,
-		hitTest, teamScores, averages, ranking, teamRanking, botPick, game,
+		hitTest, judgeTap, tapTime, teamScores, averages, ranking, teamRanking, botPick, game,
 	};
 })();

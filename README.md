@@ -12,7 +12,7 @@ special: it is registered exactly as anyone's repository would be
 | Draw & Guess | [`draw-guess/`](draw-guess) | v2, managed | managed state with a stream beside it: the rules on the host, the strokes on a channel; a game with no bots |
 | Liar's Dice | [`liars-dice/`](liars-dice) | v2, protocol | roll private dice, commit before the bidding, reveal on a challenge; the shell's turn-wait banner (`wait.turn`) |
 | Light Cycles | [`light-cycles/`](light-cycles) | v2, managed, ticking | a real-time game at a fixed tick (`"tick"`), with bots steering through `bot()` |
-| Bubble Rush | [`bubble-rush/`](bubble-rush) | v2, managed, ticking | real time where a tap is an action the host judges: the host hit-tests every tap against its own bubbles, within a latency window; free-for-all or teams (a `"teams"` result), bots on every seat |
+| Bubble Rush | [`bubble-rush/`](bubble-rush) | v2, managed, ticking | real time where a tap is judged on the phone that made it, at once, and the host takes its word (the same scoring rule on both); free-for-all or teams (a `"teams"` result), bots on every seat |
 | Sudoku | [`sudoku/`](sudoku) | v2, managed | play alone with `seats.min: 1`, or race: the host deals one puzzle, phones report only progress; a seeded daily puzzle |
 
 The arcade's SDK v2 is documented in
