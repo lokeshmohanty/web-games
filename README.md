@@ -1,6 +1,6 @@
 # web-games
 
-Six games for [the arcade](https://www.lokeshmohanty.in/games/) — and the
+Eight games for [the arcade](https://www.lokeshmohanty.in/games/) — and the
 worked example of a games repository the arcade lists. Nothing here is
 special: it is registered exactly as anyone's repository would be
 (`registry/lokeshmohanty/web-games.json` in
@@ -14,6 +14,8 @@ special: it is registered exactly as anyone's repository would be
 | Light Cycles | [`light-cycles/`](light-cycles) | v2, managed, ticking | a real-time game at a fixed tick (`"tick"`), with bots steering through `bot()` |
 | Bubble Rush | [`bubble-rush/`](bubble-rush) | v2, managed, ticking | real time where a tap is an action the host judges: the host hit-tests every tap against its own bubbles, within a latency window; free-for-all or teams (a `"teams"` result), bots on every seat |
 | Sudoku | [`sudoku/`](sudoku) | v2, managed | play alone with `seats.min: 1`, or race: the host deals one puzzle, phones report only progress; a seeded daily puzzle |
+| Five in a Row | [`five-in-a-row/`](five-in-a-row) | v2, managed | a board with no edges (pan, pinch and wheel on a canvas), two to four seats with empty ones left empty, who opens taking turns (`first`), a bot that reads lines |
+| Snakes & Ladders | [`snakes-and-ladders/`](snakes-and-ladders) | v2, managed | a fresh board dealt from the seed and checked fair each game, the die rolled on the host from state that travels to the heir, moves animated without holding anyone up |
 
 The arcade's SDK v2 is documented in
 [docs/sdk-v2.md](https://github.com/lokeshmohanty/games/blob/main/docs/sdk-v2.md):
