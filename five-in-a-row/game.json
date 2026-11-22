@@ -1,0 +1,29 @@
+{
+  "sdk": 2,
+  "state": "managed",
+  "id": "five-in-a-row",
+  "name": "FIVE IN A ROW",
+  "title": "Five in a Row",
+  "blurb": "Five of your marks in a line on a board with no edges. Two to four players.",
+  "description": "A board with no edges: the first mark goes in the centre and every mark after it touches one already down. Line up five or more of yours across, down or diagonally. Two to four players, each in their own colour; bots fill empty seats if you want them.",
+  "entry": "index.html",
+  "rules": "RULES.md",
+  "shape": "free",
+  "seats": {
+    "min": 2,
+    "max": 4
+  },
+  "bots": true,
+  "kind": "ffa",
+  "tags": [
+    "alone",
+    "strategy"
+  ],
+  "categories": [
+    "strategy"
+  ],
+  "preview": "preview.gif",
+  "license": "MIT",
+  "author": "lokeshmohanty",
+  "repo": "https://github.com/lokeshmohanty/web-games"
+}
