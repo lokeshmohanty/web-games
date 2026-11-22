@@ -539,6 +539,9 @@ canvas.addEventListener("pointerdown", (e) => {
 	// The frame the finger landed on, not the clock now: the handler may run
 	// well after the touch on a busy phone, and the bubble has moved on since.
 	const frame = seenAt(e.timeStamp);
+	// At the bell the field stands frozen a moment for taps already on their
+	// way; a touch on it now pops nothing.
+	if (frame.t >= ROUND_MS) return;
 	const t = R.tapTime(frame.t);
 	// The content box: the bounding rect includes the canvas's border.
 	const rect = canvas.getBoundingClientRect();
@@ -565,8 +568,8 @@ canvas.addEventListener("pointerdown", (e) => {
 		effectFor({ by: mine, kind: got.kind, k: hit.k, team: hit.team, pts: got.pts, mult: got.mult, x: p.x, y: p.y, r: hit.r });
 	} else effects.push({ x, y, at, ring: true, r: 0.03, colour: "rule" });
 	const r4 = (v) => Math.round(v * 1e4) / 1e4;
-	// The bubble's birth and kind ride along: an heir's ids can drift from the old host's.
-	arcade.act({ tap: { b: hit ? hit.id : null, ...(hit ? { born: hit.born, k: hit.k } : {}), x: r4(x), y: r4(y), t, n } });
+	// The bubble's birth, kind and starting place ride along: an heir's ids can drift from the old host's.
+	arcade.act({ tap: { b: hit ? hit.id : null, ...(hit ? { born: hit.born, k: hit.k, x0: hit.x0 } : {}), x: r4(x), y: r4(y), t, n } });
 	// The score and the multiplier in this same task; the field on the next frame.
 	renderHud();
 	wake();

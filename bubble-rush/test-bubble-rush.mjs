@@ -505,6 +505,20 @@ console.log("\nthe review of 2026-11-22");
 }
 
 {
+	// The grace is for taps made before the bell, still on their way. After
+	// it the field shows 0 s and stands still: a touch then pops nothing.
+	const g = start([person("host"), person("p2")]);
+	while (g.snapshot().t < ROUND_MS) g.tick({ inputs: {}, dt });
+	const live = () => g.view({ seat: "p2" }).bubbles.map(unpack).filter((x) => alive(x, ROUND_MS) && R.surfaced(x, ROUND_MS) && x.k !== "x");
+	const after = live()[0];
+	const said = g.apply({ action: { tap: { b: after.id, born: after.born, k: after.k, x0: after.x0, t: ROUND_MS, n: 1 } }, by: "p2" });
+	check("a tap made at the bell, on the frozen field, is refused (and acknowledged)", typeof said === "string" && !g.view({ seat: null }).scores.p2 && g.view({ seat: "p2" }).ack === 1, JSON.stringify({ said, scores: g.view({ seat: null }).scores }));
+	const before = live()[0];
+	check("…while one made a moment before the bell, arriving now, counts", g.apply({ action: { tap: { b: before.id, born: before.born, k: before.k, x0: before.x0, t: ROUND_MS - 1, n: 2 } }, by: "p2" }) == null && g.view({ seat: null }).scores.p2 > 0);
+	check("…and a time just short of the bell stays short of it on the wire", tapTime(ROUND_MS - 0.4) < ROUND_MS);
+}
+
+{
 	// No bot taps in the grace either.
 	const g = start([person("host"), robot("bot_1")]);
 	while (g.snapshot().t < ROUND_MS) g.tick({ inputs: {}, dt });
@@ -512,21 +526,50 @@ console.log("\nthe review of 2026-11-22");
 }
 
 {
-	// After a handover the heir's field is its own: the same id may name a
-	// different bubble. A pop carries the bubble's birth and kind, and when
-	// the named one is not it, the heir finds what was under the finger.
+	// After a handover the heir's field is its own: it carries on from a copy
+	// up to a second old, and its random stream drifts from the old host's
+	// (a bot's draws land elsewhere), so bubble N on the heir is born when it
+	// was on the old host (spawn times draw nothing) but is another bubble:
+	// another size, colour, place. A pop carries the bubble's birth, kind and
+	// starting place (x0, drawn from the stream), and when the named bubble
+	// is not that one, the heir finds what was under the finger instead.
+	const host = start([person("host"), person("p2"), person("p3")], null, 21);
+	for (let i = 0; i < 20; i++) host.tick({ inputs: {}, dt });
+	const copy = clone(host.snapshot());
+	const heir = game({ isHost: (id) => id === "p2" });
+	// The heir's stream a few draws on from the host's: where real drift comes from.
+	heir.restore({ snapshot: { ...copy, rng: (copy.rng + 3 * 0x6d2b79f5) >>> 0 } });
+	let pair = null;
+	for (let i = 0; i < 80 && !pair; i++) {
+		host.tick({ inputs: {}, dt });
+		heir.tick({ inputs: {}, dt });
+		const t = host.snapshot().t;
+		for (const a of host.snapshot().bubbles) {
+			const b = heir.snapshot().bubbles.find((x) => x.id === a.id);
+			if (b && b.born === a.born && b.k === a.k && Math.abs(b.x0 - a.x0) > 0.25 && alive(a, t) && R.surfaced(a, t) && alive(b, t) && R.surfaced(b, t)) pair = { a, b, t };
+		}
+	}
+	check("drift: an id the heir and the old host both have, born at once, of one kind, in two places", !!pair);
+	if (pair) {
+		const { a, t } = pair;
+		const p = position(a, t); // where the old host's view drew it, and the finger landed
+		const drawn = unpack(pack(a)); // as the phone had it, off the wire
+		heir.apply({ action: { tap: { b: a.id, born: drawn.born, k: drawn.k, x0: drawn.x0, x: p.x, y: p.y, t: tapTime(t) } }, by: "p3" });
+		const under = hitTest(heir.snapshot().bubbles.concat(heir.snapshot().gone.map((g) => g.b)), p.x, p.y, tapTime(t));
+		check("a pop naming a drifted id does not pop the heir's bubble of that id, far from the finger", heir.snapshot().bubbles.some((x) => x.id === a.id), JSON.stringify({ id: a.id, left: heir.snapshot().bubbles.map((x) => x.id) }));
+		check("…it scores what was under the finger on the heir's field, or nothing", (heir.view({ seat: null }).scores.p3 ?? 0) === 0 || !!under);
+	}
 	const g = start([person("host"), person("p2")]);
 	const bomb = still(g, 5, 0.2, 0.3, "x");
 	const there = still(g, 9, 0.6, 0.6);
 	place(g, [bomb, there]);
 	const t = g.snapshot().t;
-	const seen = { ...there, id: 5, born: there.born - 777 }; // what the old host's view called bubble 5
 	const p = position(there, t);
-	g.apply({ action: { tap: { b: 5, born: seen.born, k: "n", x: p.x, y: p.y, t } }, by: "p2" });
-	check("a pop naming an id that is another bubble here scores the one under the finger, not the bomb", g.view({ seat: null }).scores.p2 === 30 && g.snapshot().bubbles.some((x) => x.id === 5) && !g.snapshot().bubbles.some((x) => x.id === 9), JSON.stringify({ scores: g.view({ seat: null }).scores, left: g.snapshot().bubbles.map((x) => x.id) }));
+	g.apply({ action: { tap: { b: 5, born: bomb.born, k: "n", x0: there.x0, x: p.x, y: p.y, t } }, by: "p2" });
+	check("a pop whose named bubble here is of another kind scores the one under the finger, not the bomb", g.view({ seat: null }).scores.p2 === 30 && g.snapshot().bubbles.some((x) => x.id === 5) && !g.snapshot().bubbles.some((x) => x.id === 9), JSON.stringify({ scores: g.view({ seat: null }).scores, left: g.snapshot().bubbles.map((x) => x.id) }));
 	place(g, [still(g, 11, 0.5, 0.5)]);
 	const one = g.snapshot().bubbles[0];
-	g.apply({ action: { tap: { b: 11, born: one.born, k: "n", x: 0.01, y: 0.01, t } }, by: "p2" });
+	g.apply({ action: { tap: { b: 11, born: one.born, k: "n", x0: one.x0, x: 0.01, y: 0.01, t } }, by: "p2" });
 	check("…a pop whose bubble matches is taken by its id, wherever the finger was said to be", !g.snapshot().bubbles.length && g.view({ seat: null }).scores.p2 === 60);
 }
 

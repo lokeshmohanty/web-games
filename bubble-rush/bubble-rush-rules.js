@@ -53,12 +53,16 @@
 // their phone already showed, and relays the pop: the bubble goes from
 // everyone else's field with the next view.
 //
-// After a handover the heir's field is respawned from the copy and its ids
-// can drift, so a pop also says the bubble's birth and kind: when the named
-// bubble is not that one, the host takes what was under the finger instead.
+// After a handover the heir's field is respawned from the copy and its
+// random stream drifts (a bot's draws land elsewhere), so bubble N there is
+// born when it was on the old host (spawn times draw nothing) but is another
+// bubble. A pop also says the bubble's birth, kind and starting place (x0,
+// drawn from the stream): when the named bubble is not that one, the host
+// takes what was under the finger instead.
 //
 // The round's end: at the bell the field freezes for GRACE_MS, taking taps
-// made by then, and only then ends. Every tap is acknowledged, refused ones
+// made before the bell that are still on their way (none made after it:
+// the phone takes no touch on the frozen field), and only then ends. Every tap is acknowledged, refused ones
 // too, so a phone always settles on the host's score.
 //
 // Two phones on one bubble: both keep the pop. A bubble popped a moment ago
@@ -275,8 +279,12 @@
 		return { ...got, me: { ...me, streak: streak + 1, lastPop: t } };
 	}
 
-	/** The round time a tap names, kept on the round: the phone sends it so, the host reads it so. */
-	const tapTime = (t) => Math.round(clamp(t, 0, ROUND_MS));
+	/**
+	 * The round time a tap names, kept on the round: the phone sends it so,
+	 * the host reads it so. Rounded down, so a tap before the bell stays
+	 * before it.
+	 */
+	const tapTime = (t) => Math.floor(clamp(t, 0, ROUND_MS));
 
 	/** A team's score is its players' average, so a small side is not simply outnumbered. */
 	function teamScores(scores, seatsA, seatsB) {
@@ -444,8 +452,9 @@
 		}
 
 		/**
-		 * A person's tap, already judged on their phone: `{ b, born?, k?, x, y,
-		 * t, n? }`, `b` the id of the bubble it popped (with its birth and kind)
+		 * A person's tap, already judged on their phone: `{ b, born?, k?, x0?, x,
+		 * y, t, n? }`, `b` the id of the bubble it popped (with its birth, kind
+		 * and starting place)
 		 * or null for a miss, `t` the round time the finger landed on, x and y
 		 * where. Taken as said and scored with judgeTap, as the phone scored it;
 		 * refused only when it cannot be placed. Every tap is acknowledged
@@ -457,6 +466,9 @@
 			if (s.phase !== "play") return "the round is not on";
 			if (!seated(by)) return "you are watching";
 			if (typeof a.t !== "number" || !Number.isFinite(a.t)) return "not a tap";
+			// Made at the bell or after, on the frozen field: the grace is for
+			// taps made before it.
+			if (a.t >= ROUND_MS) return "the round is over";
 			const t = tapTime(a.t);
 			const onField = (x, y) => typeof x === "number" && typeof y === "number";
 			// Still here, or popped a moment ago by someone else (both keep it).
@@ -470,7 +482,7 @@
 				b = known.find((x) => x.id === a.b) ?? null;
 				// Not the bubble the phone popped (an heir's ids drift from the old
 				// host's): the one under the finger then, if any.
-				const same = b && (a.born === undefined || b.born === a.born) && (a.k === undefined || b.k === a.k);
+				const same = b && (a.born === undefined || b.born === a.born) && (a.k === undefined || b.k === a.k) && (a.x0 === undefined || Math.abs(b.x0 - a.x0) < 1e-3);
 				if (!same) b = onField(a.x, a.y) ? hitTest(known, a.x, a.y, t) : null;
 				// Long gone, or popped by this player already: nothing to place.
 				if (!b) return "that bubble is gone";
