@@ -81,5 +81,30 @@ rules.init({ seats, opts: {}, seed: 2, match: 1 });
 v = rules.view({ seat: null });
 check("PLAY AGAIN starts afresh, counting on", v.match === 2 && v.round === 0 && Object.keys(v.scores).length === 0 && v.phase === "choosing");
 
+console.log("\nwho draws first (docs/sdk-v2.md \"Who starts\")");
+{
+	// The platform names a seat in init: random for the first match, then the
+	// next seat (party order) on each PLAY AGAIN. That seat draws first and
+	// the rotation goes on from it. Mid-series the host leaves: the heir
+	// restores the copy mid-match and runs the next rematch.
+	const party = ["pC", "pA", "pB"]; // party order: the order `first` goes round in
+	const seated = party.map((id) => ({ id, bot: false }));
+	const host = game({ now: () => t, random: () => 0 });
+	const heir2 = game({ now: () => t, random: () => 0 });
+	const firsts = ["pA", "pB", "pC", "pA"]; // drawn pA, then the next seat each time
+	const drew = [];
+	for (let m = 0; m < 4; m++) {
+		const g = m < 2 ? host : heir2;
+		if (m === 2) heir2.restore({ snapshot: JSON.parse(JSON.stringify(host.snapshot())) });
+		g.init({ seats: seated, opts: {}, seed: m, match: m, first: firsts[m] });
+		const w = g.view({ seat: null });
+		drew.push(w.drawer);
+		if (m === 1) check("…the rotation goes on from the first drawer", JSON.stringify(w.players) === '["pB","pC","pA"]', JSON.stringify(w.players));
+	}
+	check(`the seat the platform names draws first, three rematches running, the heir's too (${drew.join(", ")})`, JSON.stringify(drew) === JSON.stringify(firsts));
+	host.init({ seats: seated, opts: {}, seed: 9, match: 0 });
+	check("no `first` (an older shell): the rotation starts at the top", host.view({ seat: null }).drawer === "pA");
+}
+
 console.log(failures ? `\n${failures} failing` : "\nall passing");
 process.exit(failures ? 1 : 0);

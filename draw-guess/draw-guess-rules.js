@@ -65,8 +65,14 @@
 		const guessers = () => s.players.filter((id) => id !== s.drawer);
 
 		return {
-			init({ seats }) {
-				const players = seats.map((p) => p.id).sort();
+			init({ seats, first }) {
+				// The platform's `first` draws first, the rotation going on from
+				// them: it is the next seat on each rematch (docs/sdk-v2.md "Who
+				// starts"), so the same player does not always open. With none (an
+				// older shell), the rotation starts at the top.
+				const sorted = seats.map((p) => p.id).sort();
+				const k = Math.max(0, sorted.indexOf(first));
+				const players = [...sorted.slice(k), ...sorted.slice(0, k)];
 				s = {
 					match: (s?.match ?? 0) + 1, // games in this run
 					players, // the drawing rotation
