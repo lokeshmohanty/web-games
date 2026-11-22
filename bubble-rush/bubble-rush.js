@@ -27,6 +27,8 @@
 // its handler ran, 100–300 ms later on a busy phone), and scored there with
 // the rules' own judgeTap: the bubble goes, the points, the streak and the
 // pop's ring show in that same task, a bomb stuns, a miss breaks the streak.
+// A bubble on that frame that a newer view has dropped (someone else popped
+// it a moment before) still counts: both players keep the pop.
 // Then the host is told which bubble (or a miss) and when; it scores it the
 // same way and takes the bubble off everyone else's field. Until its view
 // has taken a tap (`ack`), this phone shows its own score as the host's plus
@@ -145,23 +147,31 @@ let recvAt = 0; // performance.now() when `view` came
 let clockT = 0; // this phone's round clock (now())
 const shown = []; // the frames drawn lately: { at: performance.now(), t: the round time drawn }
 
-/** The round time of the frame on the screen at `when` (performance.now() time): what a finger landing then saw. */
+/**
+ * The frame on the screen at `when` (performance.now() time), { at, t }: when
+ * it was drawn and the round time it showed — what a finger landing then saw.
+ */
 function seenAt(when) {
+	const now = performance.now();
 	// A touch with no usable time (0, or not on this page's clock) is judged
 	// on the latest frame drawn, never the oldest one kept.
-	if (!(when > 0 && when <= performance.now())) return shown.at(-1)?.t ?? clockT;
-	let t = shown[0]?.t ?? clockT;
-	for (const f of shown) {
-		if (f.at > when) break;
-		t = f.t;
+	if (!(when > 0 && when <= now)) return shown.at(-1) ?? { at: now, t: clockT };
+	let f = shown[0] ?? { at: now, t: clockT };
+	for (const g of shown) {
+		if (g.at > when) break;
+		f = g;
 	}
-	return t;
+	return f;
 }
 let paused = false; // the host is out of the app (the platform's `paused`)
 let lastSeq = -1; // the last pop shown as an effect
 let lastMatch = null;
 let lastTap = 0;
 const hidden = new Map(); // bubble id -> n: popped here by tap n, until the host's view drops it
+// Bubbles the host's views dropped lately (someone else popped them, or they
+// escaped), { b, at }: still on a frame drawn before that view came, so a
+// finger on one there is a pop of it (the host lets both players keep it).
+let lately = [];
 let tapN = 0; // numbers this phone's taps: the host's view says which it has taken (`ack`)
 let pending = []; // this phone's taps the host has not taken yet: { n, pts }
 let own = null; // this player's ledger after their latest tap (rules judgeTap), while any is pending
@@ -527,14 +537,17 @@ canvas.addEventListener("pointerdown", (e) => {
 	lastTap = at;
 	// The frame the finger landed on, not the clock now: the handler may run
 	// well after the touch on a busy phone, and the bubble has moved on since.
-	const t = R.tapTime(seenAt(e.timeStamp));
+	const frame = seenAt(e.timeStamp);
+	const t = R.tapTime(frame.t);
 	// The content box: the bounding rect includes the canvas's border.
 	const rect = canvas.getBoundingClientRect();
 	const f = size();
 	const x = (e.clientX - rect.left - canvas.clientLeft) / f.w;
 	const y = (e.clientY - rect.top - canvas.clientTop) / f.h;
+	// What that frame drew: the bubbles now, and any a view dropped after it.
+	const drawn = [...bubbles, ...lately.filter((g) => g.at > frame.at).map((g) => g.b)];
 	const hit = R.hitTest(
-		bubbles.filter((b) => !isHidden(b.id)),
+		drawn.filter((b) => !isHidden(b.id)),
 		x,
 		y,
 		t,
@@ -588,6 +601,7 @@ function onView(next) {
 	if (fresh) {
 		lastMatch = next.match;
 		hidden.clear();
+		lately = [];
 		pending = [];
 		own = null;
 		shown.length = 0; // the last round's frames say nothing about this one
@@ -605,7 +619,12 @@ function onView(next) {
 	if (view && view.phase !== next.phase) clockT = next.t;
 	view = next;
 	recvAt = performance.now();
+	// Dropped by this view and not popped here: kept a second for a finger on an older frame.
+	const was = bubbles;
 	bubbles = next.bubbles.map(R.unpack);
+	const ids = new Set(bubbles.map((b) => b.id));
+	const at = performance.now();
+	lately = [...lately.filter((g) => at - g.at < 1000), ...(fresh ? [] : was.filter((b) => !ids.has(b.id) && !hidden.has(b.id)).map((b) => ({ b, at })))];
 	// This player's own pops showed as they were tapped.
 	for (const ev of next.events) if (ev.seq > lastSeq && ev.by !== me()) effectFor(ev);
 	lastSeq = Math.max(lastSeq, next.seq);
