@@ -1,0 +1,30 @@
+{
+  "sdk": 2,
+  "state": "managed",
+  "id": "ludo",
+  "name": "LUDO",
+  "title": "Ludo",
+  "blurb": "Roll a 6 to leave the yard, race your four tokens home, send rivals back. 4- or 6-player board, teams too.",
+  "description": "Classic Ludo: a 6 to leave the yard and a 6 rolls again, three 6s lose the turn, land on a token to send it home, stars are safe, an exact roll to go home. A 4-player board and a 6-player board, free-for-all or in teams. Two to six players; bots fill seats if you want them.",
+  "entry": "index.html",
+  "rules": "RULES.md",
+  "shape": "free",
+  "seats": {
+    "min": 2,
+    "max": 6
+  },
+  "bots": true,
+  "kind": "ffa",
+  "tags": [
+    "alone",
+    "party",
+    "dice"
+  ],
+  "categories": [
+    "party"
+  ],
+  "preview": "preview.gif",
+  "license": "MIT",
+  "author": "lokeshmohanty",
+  "repo": "https://github.com/lokeshmohanty/web-games"
+}
