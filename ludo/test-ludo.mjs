@@ -359,7 +359,13 @@ function botGame(ids, { board, mode = "ffa", seed }) {
 			bad = `a token off the board: ${JSON.stringify(after.tokens)}`;
 			break;
 		}
-		if (after.last?.move && after.last.n === before.n) bad = "a move without a new event";
+		// A bot's one move is its whole turn: the turn has passed on (else a
+		// platform asking bots only as they come on turn would stall).
+		if (!after.over && g.turn()[0] === who) bad = `${who} still on turn after its move`;
+		// The log holds every event since, in order, ending with the newest.
+		const fresh = after.log.filter((e) => e.n > (before.last?.n ?? 0)).map((e) => e.n);
+		if (!fresh.length || fresh.some((n, i) => n !== (before.last?.n ?? 0) + 1 + i) || fresh.at(-1) !== after.last.n) bad = `the log skipped: ${fresh.join()}`;
+		if (bad) break;
 	}
 	return { over: g.view({ seat: null }).over, steps, result: g.result(), view: g.view({ seat: null }), bad };
 }
@@ -385,22 +391,21 @@ console.log("\nbots finish games, every board and mode");
 		const ok = runs.every((r) => r.over && !r.bad && r.result && r.result.ranking.flat().sort().join() === [...ids].sort().join());
 		const kinds = runs.every((r) => r.result?.kind === (mode === "ffa" ? "ffa" : "teams"));
 		const places = mode === "ffa" ? runs.every((r) => r.view.done.length === placesOf(n)) : runs.every((r) => r.view.winners != null);
-		check(`${n} bots, ${board}-player board, ${mode}: every game ends, everyone ranked (${runs.map((r) => r.steps).join(", ")} moves)`, ok && kinds && places, runs.map((r) => r.bad || (r.over ? "" : "unfinished")).join("; "));
+		check(`${n} bots, ${board}-player board, ${mode}: every game ends, everyone ranked, each bot move a whole turn (${runs.map((r) => r.steps).join(", ")} turns)`, ok && kinds && places, runs.map((r) => r.bad || (r.over ? "" : "unfinished")).join("; "));
 	}
+	const p = table(["pA", "bot_1"]);
+	check("a person cannot have their turn played for them", p.g.apply({ action: { turn: true }, by: "pA" }) === "tap the die to roll");
 	// The bot plays better than chance: against a bot that picks its first legal move, it wins most games.
 	let wins = 0;
 	const GAMES = 40;
 	for (let seed = 1; seed <= GAMES; seed++) {
 		const g = game();
-		g.init({ seats: seatsOf("bot_smart", "bot_naive"), opts: {}, seed: seed * 7919, match: 0, first: seed % 2 ? "bot_smart" : "bot_naive" });
+		g.init({ seats: seatsOf("bot_smart", "naive"), opts: {}, seed: seed * 7919, match: 0, first: seed % 2 ? "bot_smart" : "naive" });
 		g.apply({ action: { start: true }, by: "bot_smart" });
 		for (let k = 0; k < 20000 && !g.view({ seat: null }).over; k++) {
 			const [who] = g.turn();
-			let a = g.bot({ seat: who });
-			if (who === "bot_naive" && a.token != null) {
-				const m = g.view({ seat: null }).moves[0];
-				a = { owner: m.owner, token: m.token };
-			}
+			const v = g.view({ seat: null });
+			const a = who === "bot_smart" ? g.bot({ seat: who }) : v.stage === "roll" ? { roll: true } : { owner: v.moves[0].owner, token: v.moves[0].token };
 			g.apply({ action: a, by: who });
 		}
 		if (g.view({ seat: null }).winner === 0) wins++;
@@ -414,13 +419,15 @@ console.log("\nthe die");
 	g.init({ seats: seatsOf("bot_a", "bot_b"), opts: {}, seed: 12345, match: 0 });
 	g.apply({ action: { start: true }, by: "bot_a" });
 	const faces = [0, 0, 0, 0, 0, 0, 0];
+	let seen = 0;
 	for (let k = 0; k < 6000 && !g.view({ seat: null }).over; k++) {
 		const [who] = g.turn();
 		g.apply({ action: g.bot({ seat: who }), by: who });
-		const l = g.view({ seat: null }).last;
-		if (l && l.n !== faces.n) {
-			faces.n = l.n;
-			if (!l.move || l.roll) faces[l.roll]++;
+		// Every roll, from the log (a bot's turn may hold several).
+		for (const e of g.view({ seat: null }).log) {
+			if (e.n <= seen) continue;
+			seen = e.n;
+			if (!e.picked) faces[e.roll]++; // a picked move plays the roll before it
 		}
 	}
 	const total = faces.slice(1).reduce((a, b) => a + b, 0);

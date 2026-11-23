@@ -32,18 +32,24 @@
 
 const LR = ludoRules;
 const reduced = matchMedia("(prefers-reduced-motion: reduce)");
-// A bot rolls once the last move has had time to play: the platform's own
-// pause (0.6–1.1 s) plus BOT_PACE_MS. Its pick of a token needs no more than
-// the platform's pause (the roll has landed by then). Nothing to wait for
-// under reduced motion.
-const BOT_PACE_MS = 450;
+// A bot takes its whole turn in one move (ludo-rules.js). It moves once the
+// host's own board has shown everything before it (at most BOT_WAIT_MS on top
+// of the platform's 0.6–1.1 s pause, inside the platform's 5 s for a call), so
+// a table of bots plays at the pace of its animation rather than racing ahead
+// of it; under reduced motion nothing is waited for. A bot's move may be a
+// promise (docs/sdk-v2.md "Managed state").
+const BOT_WAIT_MS = 3500;
 const rules = LR.game({ isHost: (id) => id === arcade.party?.host });
 arcade.managed({
 	...rules,
 	bot(call) {
 		const action = rules.bot(call);
-		const ms = action?.roll && !reduced.matches ? BOT_PACE_MS : 0;
-		return ms ? new Promise((done) => setTimeout(() => done(action), ms)) : action;
+		if (!action || reduced.matches || !busy()) return action;
+		const until = performance.now() + BOT_WAIT_MS;
+		return new Promise((done) => {
+			const check = () => (!busy() || performance.now() > until ? done(action) : setTimeout(check, 50));
+			check();
+		});
 	},
 });
 
@@ -186,6 +192,8 @@ const teamsOn = () => view && view.mode !== "ffa";
 const playing = () => view?.phase === "play" && !view.over;
 const myTurn = () => playing() && view.you >= 0 && view.turn === view.you && !view.out[view.you];
 const busy = () => !!anim || queue.length > 0;
+/** Whose turn the board is showing: the playing event's seat while it plays out, else the view's. */
+const shownTurn = () => (anim ? anim.ev.seat : queue.length ? queue[0].ev.seat : view.turn);
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const ordinal = (n) => `${n}${n === 1 ? "st" : n === 2 ? "nd" : n === 3 ? "rd" : "th"}`;
 const armOf = (seat) => view.arms[seat];
@@ -457,7 +465,7 @@ function tokenSpots(now) {
 	});
 	if (!anim) return list;
 	const { ev } = anim;
-	const at = (now - anim.t0) * anim.speed;
+	const at = (now - anim.t0) * anim.speed + (ev.picked ? ROLL_MS : 0);
 	const m = ev.move;
 	if (!m) return list;
 	const mover = list.find((x) => x.seat === m.owner && x.k === m.token);
@@ -637,14 +645,18 @@ function stepAnim(now) {
 	if (tumbling && !anim) showFace(1 + (Math.floor(now / 70) % 6));
 	if (!anim && queue.length) {
 		const next = queue.shift();
-		anim = { ...next, t0: now, speed: queue.length ? 2 : 1 };
+		// A phone that has fallen behind (a backgrounded tab, a slow link) catches up at double speed.
+		anim = { ...next, t0: now, speed: queue.length > 2 ? 2 : 1 };
 		if (next.ev.seat === view?.you) stopTumbling();
-		die.classList.add("tumbling");
+		if (!next.ev.picked) die.classList.add("tumbling");
 		dieColour(next.ev.seat);
+		renderStatus();
+		renderPlayers();
+		renderDie();
 	}
 	if (!anim) return;
 	const { ev } = anim;
-	const at = (now - anim.t0) * anim.speed;
+	const at = (now - anim.t0) * anim.speed + (ev.picked ? ROLL_MS : 0); // a picked move: the die has already landed
 	if (at < ROLL_MS) {
 		showFace(1 + (Math.floor(at / 60) % 6));
 		return;
@@ -697,7 +709,8 @@ function dieColour(seat) {
 }
 
 function renderDie() {
-	const roll = myTurn() && view.stage === "roll";
+	// Your roll once the board has caught up: never while the moves before it still play.
+	const roll = myTurn() && view.stage === "roll" && !busy();
 	die.disabled = !roll || tumbling;
 	die.classList.toggle("mine", roll && !tumbling && !busy());
 	if (!busy() && view && playing()) dieColour(view.turn);
@@ -709,7 +722,11 @@ function renderStatus() {
 	let text = "";
 	if (!view) text = "";
 	else if (view.phase === "setup") text = "LUDO — setting up";
-	else if (view.over) {
+	else if (busy()) {
+		// The status follows the board, not the host: the moves before still playing.
+		const seat = shownTurn();
+		text = seat === view.you ? "YOUR ROLL" : `${nameOf(seat)} to roll`;
+	} else if (view.over) {
 		if (teamsOn()) {
 			const mine = view.you >= 0 && view.teams[view.you] === view.winners;
 			text = mine ? "YOUR TEAM WINS!" : view.winners != null ? `TEAM ${TEAM_NAMES[view.winners]} WINS` : "GAME OVER";
@@ -731,7 +748,7 @@ function renderPlayers() {
 	const order = view.seats.map((_, i) => i).sort((a, b) => (teamsOn() ? view.teams[a] - view.teams[b] : 0) || view.arms[a] - view.arms[b]);
 	playersEl.replaceChildren(
 		...order.map((seat) => {
-			const chip = el("span", `lu-player${playing() && seat === view.turn ? " on" : ""}${view.out[seat] ? " out" : ""}`);
+			const chip = el("span", `lu-player${view.phase === "play" && (busy() || !view.over) && seat === shownTurn() ? " on" : ""}${view.out[seat] ? " out" : ""}`);
 			const toks = shown[seat] ?? view.tokens[seat];
 			const home = toks.filter((p) => p === view.home).length;
 			const place = view.done.indexOf(seat);
@@ -838,7 +855,7 @@ function watchLost(n) {
 	}, LOST_MS);
 }
 function roll() {
-	if (!myTurn() || view.stage !== "roll" || tumbling) return;
+	if (!myTurn() || view.stage !== "roll" || tumbling || busy()) return;
 	tumbling = true;
 	die.classList.add("tumbling");
 	dieColour(view.you);
@@ -913,7 +930,10 @@ function renderSetup() {
 		}
 		parts.push(boards, modes);
 		if (view.modes.length === 1) parts.push(el("p", null, view.board === 4 ? "Teams: four players on the 4-player board." : "Teams: six players on the 6-player board."));
-	} else parts.push(el("p", null, `${nameOf(view.seats.indexOf(arcade.party?.host)) || "The host"} is setting up: the ${boardLabel}, ${modeLabel}.`));
+	} else {
+		const hostName = arcade.party?.members?.find((p) => p.id === arcade.party?.host)?.name || "The host";
+		parts.push(el("p", null, `${hostName} is setting up: the ${boardLabel}, ${modeLabel}.`));
+	}
 	if (teamsOn()) {
 		const list = el("div", "lu-teams");
 		const ts = [...new Set(view.teams)].sort();
@@ -974,8 +994,10 @@ arcade.on("view", ({ state }) => {
 			clearTimeout(lostTimer); // ours arrived
 			picking = false;
 		}
-		if (state.last.n > shownN + 1 || reduced.matches) {
-			// More than one event behind (a reconnect), or no motion wanted: jump.
+		// Every event since the last one drawn, in order (a bot's turn is several).
+		const fresh = (state.log ?? [state.last]).filter((e) => e.n > shownN);
+		if (fresh[0]?.n !== shownN + 1 || reduced.matches) {
+			// Further behind than the log reaches (a reconnect), or no motion wanted: jump.
 			queue = [];
 			anim = null;
 			shown = clone(state.tokens);
@@ -983,8 +1005,19 @@ arcade.on("view", ({ state }) => {
 			die.classList.remove("tumbling");
 			showFace(state.last.roll);
 			tell(state.last);
-			moves++;
-		} else queue.push({ ev: clone(state.last), after: clone(state.tokens) });
+			moves += fresh.length || 1;
+		} else {
+			// Each event's board after it, from the one before: the last is the view's own.
+			let board = clone(queue.length ? queue[queue.length - 1].after : anim ? anim.after : shown);
+			for (const ev of fresh) {
+				board = clone(board);
+				if (ev.move) {
+					for (const [seat, k] of ev.move.caps ?? []) board[seat][k] = -1;
+					board[ev.move.owner][ev.move.token] = ev.move.to;
+				}
+				queue.push({ ev: clone(ev), after: ev.n === state.last.n ? clone(state.tokens) : board });
+			}
+		}
 		shownN = state.last.n;
 	} else if (!busy()) shown = clone(state.tokens);
 	if (shown.length !== state.tokens.length) shown = clone(state.tokens);

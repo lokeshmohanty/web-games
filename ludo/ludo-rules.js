@@ -53,6 +53,7 @@
 		6: { n: 6, L: 5, theta0: 150 },
 	};
 	const MODES = ["ffa", "pairs", "trios"];
+	const LOG = 24; // events a view carries, for a phone to play through
 	// Where a table of each size sits with no teams: spread round the board,
 	// so two people on the 4-player board are opposite each other.
 	const ARMS = {
@@ -115,16 +116,17 @@
 				// The square corner of the cross.
 				centre = [(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2];
 				corners = [[vx, vy], p1, [p1[0] + p2[0] - vx, p1[1] + p2[1] - vy], p2];
-				gap = 1.05;
+				gap = 1.2;
 			} else {
 				// The triangle between two arms, equilateral (sides L).
 				centre = [(vx + p1[0] + p2[0]) / 3, (vy + p1[1] + p2[1]) / 3];
 				corners = [[vx, vy], p1, p2];
 				gap = 0.62;
 			}
+			// The spots stand square to the arms on the cross, square to the middle between two arms on the hexagon.
 			const out = Math.hypot(centre[0], centre[1]);
-			const [ox, oy] = [centre[0] / out, centre[1] / out];
-			const [px, py] = [-oy, ox];
+			const [ox, oy] = n === 4 ? A.u : [centre[0] / out, centre[1] / out];
+			const [px, py] = n === 4 ? A.v : [-oy, ox];
 			const spots = [
 				[-1, -1],
 				[1, -1],
@@ -290,7 +292,47 @@
 			if (roll === 6 && owners(s.turn).length) return;
 			next();
 		}
-		const event = (e) => (s.last = { n: ++s.n, seat: s.turn, ...e });
+		/** A roll or a move happened: the newest event, and the log every phone plays through. */
+		function event(e) {
+			s.last = { n: ++s.n, seat: s.turn, ...e };
+			s.log.push(s.last);
+			if (s.log.length > LOG) s.log.splice(0, s.log.length - LOG);
+		}
+		/** Seat `me` rolls: three 6s lose the turn; nothing to move passes it (a 6 still rolls again); one move is made; more wait for a pick. */
+		function rollFor(me) {
+			let roll;
+			if (die) roll = die();
+			else {
+				const r = rng(s.dice);
+				roll = r.int(1, 6);
+				s.dice = r.state();
+			}
+			s.rolls++;
+			s.sixes = roll === 6 ? s.sixes + 1 : 0;
+			if (s.sixes === 3) {
+				event({ roll, lost: true });
+				return next();
+			}
+			const moves = movesOf(me, roll);
+			if (!moves.length) {
+				event({ roll, pass: true });
+				if (roll === 6) return;
+				return next();
+			}
+			if (moves.length === 1) {
+				event({ roll, move: play(moves[0]) });
+				return after(roll);
+			}
+			s.stage = "move";
+			s.roll = roll;
+			event({ roll, choose: true });
+		}
+		/** Seat `me` plays `move` (with that owner's token `token`, any of those sharing its square). */
+		function moveFor(me, move, token) {
+			const roll = s.roll;
+			event({ roll, picked: true, move: play({ ...move, token }) });
+			after(roll);
+		}
 		const defaultArms = () => [...(ARMS[s.board][count()] ?? s.seats.map((_, i) => i))];
 
 		function startPlay() {
@@ -337,7 +379,9 @@
 					sixes: 0, // 6s in a row this turn
 					dice: rng(sd ^ 0x1d0d1ce).state(),
 					mix: rng(sd ^ 0x7ea35).state(),
-					last: null, // the newest roll or move: { n, seat, roll, move?, choose?, pass?, lost? }
+					last: null, // the newest roll or move: { n, seat, roll, move?, choose?, picked?, pass?, lost? }
+					log: [], // the newest events, oldest first
+					bots: seats.map((p) => !!p.bot),
 					n: 0,
 					rolls: 0,
 					captures: ids.map(() => 0),
@@ -385,36 +429,25 @@
 				if (s.over) return "the game is over";
 				if (me < 0 || s.out[me]) return "you are not playing";
 				if (me !== s.turn) return "not your turn";
+				// A bot takes its whole turn in one move: every roll, every pick,
+				// the 6s again, until the turn passes. (A platform that asks a
+				// bot only when it comes on turn would never ask again for a
+				// bot still on turn after its own move.) Each step is an event
+				// in the log, so every phone still plays them one by one.
+				if (a.turn === true) {
+					if (!s.bots[me]) return "tap the die to roll";
+					for (let guard = 0; guard < 60 && !s.over && s.turn === me; guard++) {
+						if (s.stage === "roll") rollFor(me);
+						else {
+							const best = pick(me, s.roll);
+							moveFor(me, best, best.token);
+						}
+					}
+					return;
+				}
 				if (s.stage === "roll") {
 					if (a.roll !== true) return "tap the die to roll";
-					let roll;
-					if (die) roll = die();
-					else {
-						const r = rng(s.dice);
-						roll = r.int(1, 6);
-						s.dice = r.state();
-					}
-					s.rolls++;
-					s.sixes = roll === 6 ? s.sixes + 1 : 0;
-					if (s.sixes === 3) {
-						event({ roll, lost: true });
-						return void next();
-					}
-					const moves = movesOf(me, roll);
-					if (!moves.length) {
-						event({ roll, pass: true });
-						// A 6 still rolls again, even with nothing to move.
-						if (roll === 6) return;
-						return void next();
-					}
-					if (moves.length === 1) {
-						event({ roll, move: play(moves[0]) });
-						return void after(roll);
-					}
-					s.stage = "move";
-					s.roll = roll;
-					event({ roll, choose: true });
-					return;
+					return void rollFor(me);
 				}
 				// stage "move": which token.
 				const owner = Number.isInteger(a.owner) ? a.owner : me;
@@ -423,9 +456,7 @@
 				const from = s.tokens[owner][token];
 				const move = movesOf(me, s.roll).find((m) => m.owner === owner && m.from === from);
 				if (!move) return "that token cannot move";
-				const roll = s.roll;
-				event({ roll, move: play({ ...move, token }) });
-				after(roll);
+				moveFor(me, move, token);
 			},
 
 			view({ seat }) {
@@ -451,6 +482,7 @@
 					// The choices on the table: the seat on turn's, when it has more than one.
 					moves: s.phase === "play" && !s.over && s.stage === "move" ? movesOf(s.turn, s.roll) : [],
 					last: s.last && JSON.parse(JSON.stringify(s.last)),
+					log: JSON.parse(JSON.stringify(s.log)),
 					over: s.over,
 					winners: s.winners,
 					winner: s.over && !teams() ? (s.done[0] ?? s.seats.map((_, i) => i).find(racing) ?? null) : null,
@@ -464,9 +496,7 @@
 
 			bot({ seat }) {
 				if (s.phase !== "play" || s.over || seatOf(seat) !== s.turn) return null;
-				if (s.stage === "roll") return { roll: true };
-				const best = pick(s.turn, s.roll);
-				return best && { owner: best.owner, token: best.token };
+				return { turn: true };
 			},
 
 			result() {
@@ -508,7 +538,7 @@
 				const i = seatOf(seat);
 				if (i < 0 || s.out[i] || s.over) return false;
 				if (s.phase === "setup") {
-					for (const k of ["seats", "tokens", "out", "captures"]) s[k].splice(i, 1);
+					for (const k of ["seats", "tokens", "out", "captures", "bots"]) s[k].splice(i, 1);
 					if (s.opener >= count()) s.opener = 0;
 					s.turn = s.opener;
 					s.openerId = s.seats[s.opener] ?? null;
