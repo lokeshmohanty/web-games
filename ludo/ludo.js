@@ -122,8 +122,12 @@ style.textContent = `
 	.lu-teams svg { width: 14px; height: 14px; }
 	.lu-teams b { color: var(--ink); }
 	/* The end: what the next game will be, and CHANGE (the host's). */
-	.lu-next { display: flex; align-items: center; justify-content: center; gap: 4px 10px; flex-wrap: wrap; font-size: 0.85rem; color: var(--ink-2); text-align: center; }
+	.lu-next { display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--ink-2); text-align: center; }
 	.lu-next[hidden] { display: none; }
+	.lu-next-line { display: flex; align-items: center; justify-content: center; gap: 4px 10px; flex-wrap: wrap; }
+	.lu-next .lu-choice .neon-btn { border: 2px solid var(--accent); }
+	.lu-next .lu-choice .neon-btn[aria-pressed="false"]:not(:disabled) { background: transparent; color: var(--accent); }
+	.lu-next .lu-choice .neon-btn:disabled { border-color: var(--rule); }
 	.lu-next b { color: var(--ink); font-weight: 600; }
 	.lu-next .neon-btn { min-height: 44px; min-width: 44px; padding: 8px 14px; font-size: 0.85rem; }
 `;
@@ -1034,8 +1038,6 @@ addEventListener("keydown", (e) => {
 
 let lastSetup = "";
 function renderSetup() {
-	if (choosingNext) return renderNextChoices();
-	delete setup.dataset.next;
 	const on = view?.phase === "setup";
 	setup.hidden = !on;
 	if (!on) {
@@ -1114,44 +1116,6 @@ function renderSetup() {
 	setup.replaceChildren(...parts);
 }
 
-/** CHANGE at the end: the board and mode for the next game, only what fits this table. */
-function renderNextChoices() {
-	const n = nextGame();
-	if (!n) return;
-	setup.hidden = false;
-	setup.dataset.next = "1";
-	const key = JSON.stringify(["next", n]);
-	if (key === lastSetup) return;
-	lastSetup = key;
-	const boards = el("div", "lu-choice");
-	boards.setAttribute("role", "group");
-	boards.setAttribute("aria-label", "Next game's board");
-	for (const b of [4, 6]) {
-		const btn = el("button", "neon-btn", `${b}-PLAYER BOARD`);
-		btn.type = "button";
-		btn.dataset.board = String(b);
-		btn.setAttribute("aria-pressed", String(n.board === b));
-		btn.disabled = !n.boards.includes(b);
-		btn.onclick = () => pickNext({ board: b });
-		boards.append(btn);
-	}
-	const modes = el("div", "lu-choice");
-	modes.setAttribute("role", "group");
-	modes.setAttribute("aria-label", "Next game's mode");
-	for (const mode of ["ffa", "pairs", ...(n.board === 6 ? ["trios"] : [])]) {
-		const btn = el("button", "neon-btn", modeName(n.board, mode).toUpperCase());
-		btn.type = "button";
-		btn.dataset.mode = mode;
-		btn.setAttribute("aria-pressed", String(n.mode === mode));
-		btn.disabled = !n.modes.includes(mode);
-		btn.onclick = () => pickNext({ mode });
-		modes.append(btn);
-	}
-	const parts = [el("h2", null, "NEXT GAME"), el("p", null, "For the next game: PLAY AGAIN starts on it, and so does this game's card."), boards, modes];
-	if (n.modes.length === 1) parts.push(el("p", null, n.board === 4 ? "Teams: four players on the 4-player board." : "Teams: six players on the 6-player board."));
-	setup.replaceChildren(...parts);
-}
-
 // ------------------------------------------------------------------ views
 
 function render() {
@@ -1172,7 +1136,8 @@ function render() {
 // goes to the host's own rules (the platform takes no moves after the end;
 // the host's rules are the live ones) and to the table kept on this device,
 // so a card's tap starts on it too. The shell's end card sits over the game:
-// SEE THE BOARD tucks it away, and the line is there.
+// SEE THE BOARD tucks it to the bottom, and the line, with its choices under
+// it, is at the top, clear of it.
 
 let choosingNext = false;
 const modeName = (board, mode) => ({ ffa: "free-for-all", pairs: board === 4 ? "2 v 2" : "teams of 2", trios: "teams of 3" })[mode];
@@ -1211,7 +1176,35 @@ function renderNext() {
 	};
 	const what = el("span");
 	what.append(document.createTextNode("Next game: "), el("b", null, `${n.board}-player board, ${modeName(n.board, n.mode)}`));
-	nextEl.replaceChildren(what, change);
+	const line = el("div", "lu-next-line");
+	line.append(what, change);
+	if (!choosingNext) return void nextEl.replaceChildren(line);
+	const boards = el("div", "lu-choice");
+	boards.setAttribute("role", "group");
+	boards.setAttribute("aria-label", "Next game's board");
+	for (const b of [4, 6]) {
+		const btn = el("button", "neon-btn", `${b}-PLAYER BOARD`);
+		btn.type = "button";
+		btn.dataset.board = String(b);
+		btn.setAttribute("aria-pressed", String(n.board === b));
+		btn.disabled = !n.boards.includes(b);
+		btn.onclick = () => pickNext({ board: b });
+		boards.append(btn);
+	}
+	const modes = el("div", "lu-choice");
+	modes.setAttribute("role", "group");
+	modes.setAttribute("aria-label", "Next game's mode");
+	for (const mode of ["ffa", "pairs", ...(n.board === 6 ? ["trios"] : [])]) {
+		const btn = el("button", "neon-btn", modeName(n.board, mode).toUpperCase());
+		btn.type = "button";
+		btn.dataset.mode = mode;
+		btn.setAttribute("aria-pressed", String(n.mode === mode));
+		btn.disabled = !n.modes.includes(mode);
+		if (btn.disabled) btn.title = "Teams need every seat on the board filled";
+		btn.onclick = () => pickNext({ mode });
+		modes.append(btn);
+	}
+	nextEl.replaceChildren(line, boards, modes);
 }
 
 arcade.on("view", ({ state }) => {
