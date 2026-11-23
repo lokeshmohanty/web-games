@@ -38,6 +38,7 @@ style.textContent = `
 		overflow: hidden; background: var(--surface); box-shadow: 0 0 24px var(--glow); }
 	.fr-board canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
 	.fr-board canvas.dragging { cursor: grabbing; }
+	.fr-board canvas:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; }
 	.fr-tools { position: absolute; right: 8px; bottom: 8px; display: flex; gap: 8px; }
 	.fr-tools button { width: 44px; height: 44px; padding: 0; border-radius: 12px; border: 1px solid var(--border);
 		background: color-mix(in srgb, var(--panel) 88%, transparent); color: var(--ink); font: inherit; font-size: 1.25rem;
@@ -99,6 +100,12 @@ let hover = null; // [x, y] under the mouse
 let cursor = null; // [x, y]: the keyboard's cell
 let pop = null; // { x, y, t0 } while a new mark grows
 let glide = null; // { from, to, t0, ms } while the camera follows a move
+// The camera is the player's while they move it: no following a new mark
+// while a finger is down, nor for HANDS_OFF_MS after a pan or a zoom.
+const HANDS_OFF_MS = 2000;
+let handled = -Infinity; // when the player last panned or zoomed
+const handsOn = () => pointers.size > 0 || performance.now() - handled < HANDS_OFF_MS;
+let blurs = 0; // glowing draws in the last frame, for the tests (marks come from sprites)
 let raf = 0;
 let drawn = 0; // frames painted, for the tests
 
@@ -130,6 +137,7 @@ function zoomAt(k, sx = size.w / 2, sy = size.h / 2) {
 	const wy = cam.y + (sy - size.h / 2) / cam.z;
 	cam = { x: wx - (sx - size.w / 2) / z, y: wy - (sy - size.h / 2) / z, z };
 	glide = null;
+	handled = performance.now();
 	if (cam.z >= CONFIRM_PX) pending = null;
 	paint();
 }
@@ -149,8 +157,13 @@ function moveTo(to, animate = true) {
 	} else glide = { from: { ...cam }, to, t0: performance.now(), ms: 260 };
 	paint();
 }
-/** Keep the newest mark in view: glide to it only if it is near or past the edge. */
-function follow(x, y) {
+/**
+ * Keep the newest mark in view: glide to it only if it is near or past the
+ * edge, and never while the player is moving the board (`force`: the
+ * keyboard's own cursor).
+ */
+function follow(x, y, force = false) {
+	if (!force && handsOn()) return;
 	const [sx, sy] = toScreen(x, y);
 	const m = cam.z * 1.2;
 	if (sx < m || sy < m || sx > size.w - m || sy > size.h - m - 52) moveTo({ x, y, z: cam.z });
@@ -185,6 +198,7 @@ function frame(now) {
 		if (p >= 1) glide = null;
 	}
 	const { w, h, dpr } = size;
+	blurs = 0;
 	c2d.setTransform(dpr, 0, 0, dpr, 0, 0);
 	c2d.fillStyle = tokens.surface;
 	c2d.fillRect(0, 0, w, h);
@@ -289,46 +303,87 @@ function frame(now) {
 	if (glide || pop || pending) paint();
 }
 
+/** Seat `seat`'s shape as a path on `g`, centred on (sx, sy), r its size. */
+function shapePath(g, seat, sx, sy, r) {
+	g.beginPath();
+	switch (SHAPES[seat % SHAPES.length]) {
+		case "ring":
+			g.arc(sx, sy, r, 0, Math.PI * 2);
+			break;
+		case "cross":
+			g.moveTo(sx - r, sy - r);
+			g.lineTo(sx + r, sy + r);
+			g.moveTo(sx + r, sy - r);
+			g.lineTo(sx - r, sy + r);
+			break;
+		case "triangle":
+			g.moveTo(sx, sy - r * 1.1);
+			g.lineTo(sx + r * 1.05, sy + r * 0.8);
+			g.lineTo(sx - r * 1.05, sy + r * 0.8);
+			g.closePath();
+			break;
+		default:
+			g.moveTo(sx, sy - r * 1.1);
+			g.lineTo(sx + r * 1.1, sy);
+			g.lineTo(sx, sy + r * 1.1);
+			g.lineTo(sx - r * 1.1, sy);
+			g.closePath();
+	}
+}
+
+/** Paint seat `seat`'s mark on `g` at (sx, sy) in its units, r its size, `px` backing pixels per unit. */
+function paintMark(g, seat, sx, sy, r, px) {
+	const colour = colourOf(seat);
+	g.strokeStyle = colour;
+	g.fillStyle = alpha(colour, 0.18);
+	g.lineWidth = Math.max(2, cam.z * 0.1);
+	g.lineJoin = "round";
+	g.lineCap = "round";
+	const glow = glows();
+	g.shadowBlur = glow ? 10 * px : 0; // backing px: shadowBlur ignores the transform
+	g.shadowColor = colour;
+	if (glow) blurs++;
+	shapePath(g, seat, sx, sy, r);
+	if (SHAPES[seat % SHAPES.length] !== "cross") g.fill();
+	g.stroke();
+	g.shadowBlur = 0;
+}
+
+// A glowing blur is the dearest thing a canvas draws: zoomed out with 500
+// marks at DPR 3 it cost about 52 ms a frame (review, 2026-11-23). So each
+// seat's mark is painted once per zoom, theme and pixel ratio into a sprite,
+// and the board stamps sprites.
+const sprites = new Map(); // key → canvas
+function spriteOf(seat) {
+	const t = theme();
+	const key = `${seat}:${cam.z.toFixed(2)}:${size.dpr}:${t?.name}:${t?.mode}:${colourOf(seat)}:${glows()}`;
+	let sp = sprites.get(key);
+	if (sp) return sp;
+	if (sprites.size > 48) sprites.clear(); // a pinch walks through many zooms
+	const r = cam.z * 0.34;
+	const half = Math.ceil((r * 1.2 + Math.max(2, cam.z * 0.1)) * size.dpr + (glows() ? 22 * size.dpr : 2));
+	sp = document.createElement("canvas");
+	sp.width = sp.height = half * 2;
+	const g = sp.getContext("2d");
+	g.setTransform(size.dpr, 0, 0, size.dpr, 0, 0);
+	paintMark(g, seat, half / size.dpr, half / size.dpr, r, size.dpr);
+	sprites.set(key, sp);
+	return sp;
+}
+
 /** Seat `seat`'s mark at (x, y): its colour and its shape, `grow` of full size, at opacity `a`. */
 function drawMark(x, y, seat, grow, a) {
 	const [sx, sy] = toScreen(x, y);
-	const r = cam.z * 0.34 * grow;
-	const colour = colourOf(seat);
+	if (grow === 1 && a === 1) {
+		const sp = spriteOf(seat);
+		const w = sp.width / size.dpr;
+		c2d.drawImage(sp, sx - w / 2, sy - w / 2, w, w);
+		return;
+	}
+	// Growing in, or a ghost: drawn as it is, once.
 	c2d.save();
 	c2d.globalAlpha = a;
-	c2d.strokeStyle = colour;
-	c2d.fillStyle = alpha(colour, 0.18);
-	c2d.lineWidth = Math.max(2, cam.z * 0.1);
-	c2d.lineJoin = "round";
-	c2d.lineCap = "round";
-	c2d.shadowBlur = glows() ? 10 * size.dpr : 0;
-	c2d.shadowColor = colour;
-	c2d.beginPath();
-	switch (SHAPES[seat % SHAPES.length]) {
-		case "ring":
-			c2d.arc(sx, sy, r, 0, Math.PI * 2);
-			break;
-		case "cross":
-			c2d.moveTo(sx - r, sy - r);
-			c2d.lineTo(sx + r, sy + r);
-			c2d.moveTo(sx + r, sy - r);
-			c2d.lineTo(sx - r, sy + r);
-			break;
-		case "triangle":
-			c2d.moveTo(sx, sy - r * 1.1);
-			c2d.lineTo(sx + r * 1.05, sy + r * 0.8);
-			c2d.lineTo(sx - r * 1.05, sy + r * 0.8);
-			c2d.closePath();
-			break;
-		default:
-			c2d.moveTo(sx, sy - r * 1.1);
-			c2d.lineTo(sx + r * 1.1, sy);
-			c2d.lineTo(sx, sy + r * 1.1);
-			c2d.lineTo(sx - r * 1.1, sy);
-			c2d.closePath();
-	}
-	if (SHAPES[seat % SHAPES.length] !== "cross") c2d.fill();
-	c2d.stroke();
+	paintMark(c2d, seat, sx, sy, cam.z * 0.34 * grow, size.dpr);
 	c2d.restore();
 }
 
@@ -442,6 +497,7 @@ canvas.addEventListener("pointermove", (e) => {
 		}
 		if (dragged) {
 			cam = { ...cam, x: cam.x - dx / cam.z, y: cam.y - dy / cam.z };
+			handled = performance.now();
 			paint();
 		}
 	} else if (pointers.size === 2 && pinch) {
@@ -481,6 +537,7 @@ canvas.addEventListener(
 		if (e.ctrlKey || Math.abs(e.deltaY) >= Math.abs(e.deltaX)) zoomAt(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)), x, y);
 		else {
 			cam = { ...cam, x: cam.x + e.deltaX / cam.z };
+			handled = performance.now();
 			paint();
 		}
 	},
@@ -498,18 +555,35 @@ canvas.addEventListener("keydown", (e) => {
 		e.preventDefault();
 		cursor = cursor ?? (view?.last ? [...view.last] : [0, 0]);
 		cursor = [cursor[0] + step[0], cursor[1] + step[1]];
-		follow(cursor[0], cursor[1]);
+		follow(cursor[0], cursor[1], true);
 		paint();
 	} else if (e.key === "Enter" || e.key === " ") {
 		e.preventDefault();
-		const at = cursor ?? (view?.marks.length ? null : [0, 0]);
-		if (at) {
-			pending = cam.z < CONFIRM_PX ? at : null;
-			place(at[0], at[1]);
+		if (!cursor) {
+			// Nothing chosen yet: show where the cursor is, place nothing.
+			showCursor();
+			return say("Arrow keys move the cursor · Enter places");
 		}
+		pending = cam.z < CONFIRM_PX ? cursor : null;
+		place(cursor[0], cursor[1]);
 	} else if (e.key === "+" || e.key === "=") zoomAt(1.25);
 	else if (e.key === "-") zoomAt(0.8);
 	else if (e.key === "0") fitAll();
+});
+
+/** The keyboard's cursor, on the last mark (the centre on an empty board), in view. */
+function showCursor() {
+	cursor = cursor ?? (view?.last ? [...view.last] : [0, 0]);
+	follow(cursor[0], cursor[1], true);
+	paint();
+}
+// Focus from the keyboard shows the cursor; a tap that focuses does not.
+canvas.addEventListener("focus", () => {
+	if (canvas.matches(":focus-visible")) showCursor();
+});
+canvas.addEventListener("blur", () => {
+	cursor = null;
+	paint();
 });
 
 // -------------------------------------------------------------- the views
@@ -543,7 +617,7 @@ arcade.on("view", ({ state }) => {
 		const ys = state.line.map((c) => c[1]);
 		const mid = { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 };
 		const need = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) + 2;
-		moveTo({ ...mid, z: Math.min(cam.z, Math.max(MIN_PX, Math.min(size.w, size.h - 56) / need)) });
+		if (!handsOn()) moveTo({ ...mid, z: Math.min(cam.z, Math.max(MIN_PX, Math.min(size.w, size.h - 56) / need)) });
 	}
 	if (!pop) arcade.idle?.();
 	renderHud();
@@ -552,6 +626,7 @@ arcade.on("view", ({ state }) => {
 arcade.on("rejected", (m) => say(m.reason));
 arcade.on("roster", renderHud);
 arcade.on("theme.set", () => {
+	sprites.clear();
 	renderHud();
 	paint();
 });
@@ -573,6 +648,9 @@ arcade.debug = () => {
 		legal: legalNow.map((c) => [...c]),
 		myTurn: myTurn(),
 		pending,
+		cursor,
 		drawn,
+		blurs,
+		focused: document.activeElement === canvas,
 	};
 };
