@@ -213,5 +213,32 @@ console.log("\nthe reveal, under a race");
 	check("reading it after the await is what accused them", verdicts.afterAwait === "accused", `${verdicts.afterAwait}`);
 }
 
+console.log("\nwho opens each game (docs/sdk-v2.md \"Who starts\")");
+{
+	// A protocol game runs its own matches, so it follows the arcade's rule
+	// itself: the host draws the first game's opener, then the next seat
+	// opens each NEW GAME. The opener travels in every state message, so a
+	// host who leaves mid-series hands it to the heir, whose NEW GAME goes on.
+	const { nextOpener } = R;
+	const ids = ["host", "ana", "bot_1"];
+	let opener = nextOpener(null, ids, () => 0.5); // game 1: drawn (the middle seat here)
+	const opened = [opener.id];
+	opener = nextOpener(opener, ids);
+	opened.push(opener.id); // game 2, the host's NEW GAME
+	// Mid-game 2 the host leaves: the heir has `opener` from the last state
+	// message (JSON), and the seats are now everyone still here.
+	const heirs = ["ana", "bot_1"];
+	let carried = JSON.parse(JSON.stringify({ opener })).opener;
+	carried = nextOpener(carried, heirs);
+	opened.push(carried.id); // game 3, the heir's NEW GAME
+	carried = nextOpener(carried, heirs);
+	opened.push(carried.id); // game 4
+	check(`a drawn opener, then the next seat each NEW GAME, the heir's too (${opened.join(", ")})`, opened.join() === "ana,bot_1,ana,bot_1", opened.join());
+	check("the first game's opener is drawn: any seat can open", new Set([0, 0.4, 0.9].map((r) => nextOpener(null, ids, () => r).id)).size === 3);
+	check("after the last seat, the first", nextOpener({ id: "bot_1", at: 2 }, ids).id === "host");
+	check("an opener who left is followed by the seat that was next", nextOpener({ id: "host", at: 0 }, heirs).id === "ana" && nextOpener({ id: "gone", at: 2 }, ["host", "ana"]).id === "host");
+	check("nobody seated: nobody opens", nextOpener(null, []) === null);
+}
+
 console.log(failures ? `\n${failures} failing\n` : "\nall passing\n");
 process.exit(failures ? 1 : 0);

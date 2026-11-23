@@ -189,7 +189,7 @@ function setHud(parts) {
 	}
 }
 
-const { DICE, FACES, bidBeats, raisesAfter, resolveCall, rollDice, botAction } = liarsDiceRules;
+const { DICE, FACES, bidBeats, raisesAfter, resolveCall, rollDice, botAction, nextOpener } = liarsDiceRules;
 const PIPS = ["", "⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
 
 // ------------------------------------------------------------------- markup
@@ -249,6 +249,10 @@ let seats = []; // [{ id, dice, out }]
 let bid = null; // { count, face, by }
 let turn = null;
 let starter = null;
+// Who opened this game's first round ({ id, at }): the next game opens with
+// the seat after, so the same player does not always bid first. In every
+// state message, so an heir's NEW GAME goes on round the table.
+let opener = null;
 let digests = {};
 let reveals = {}; // id -> { hand, nonce }
 let verdicts = {}; // id -> null (clean) | string
@@ -286,7 +290,7 @@ const setNotice = (t) => {
 // ----------------------------------------------------------------- the wire
 
 const publicState = () => ({
-	seats, bid, turn, starter, digests, over, lastCall, match: matchNo,
+	seats, bid, turn, starter, opener, digests, over, lastCall, match: matchNo,
 	reveals: phase === "reveal" || over ? reveals : {},
 });
 
@@ -311,6 +315,7 @@ const stateCh = arcade.channel("ldState", (msg, from) => {
 	bid = msg.bid;
 	turn = msg.turn;
 	starter = msg.starter;
+	if (msg.opener) opener = msg.opener;
 	digests = msg.digests ?? {};
 	matchNo = msg.match ?? matchNo;
 	// Back from a reload: the cup this round was committed to, if the digest
@@ -757,7 +762,11 @@ function render() {
 
 function freshSeats() {
 	seats = players().map((id) => ({ id, dice: DICE, out: false }));
-	starter = seats[0]?.id ?? null;
+	// The host picks who opens: at random for the party's first game, then
+	// the next seat each NEW GAME (a guest's pick here is replaced by the
+	// host's state).
+	if (isHost()) opener = nextOpener(opener, seats.map((s) => s.id));
+	starter = opener?.id ?? seats[0]?.id ?? null;
 }
 
 function newGame() {

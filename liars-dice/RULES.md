@@ -6,6 +6,7 @@ Bid on dice you cannot see, and call out the bids you think are lies. Be the las
 - Everyone starts with five dice, rolled in secret. You see only your own.
 - **Ones are wild:** a one counts as whatever face is being bid on.
 - Players take turns. On your turn you either **bid** or call **LIAR!** on the last bid.
+- A random player opens the first game. Each **NEW GAME** is opened by the next player round the table, so everyone gets to bid first.
 - A bid names a count and a face from 2 to 6, such as "four 5s". It claims there are *at least* that many, ones included, across **everyone's** dice.
 - Each bid must beat the last: more dice, or the same number of dice with a higher face. You cannot bid more dice than are on the table, or bid on ones.
 - When someone calls LIAR!, every cup is lifted and the dice are counted.

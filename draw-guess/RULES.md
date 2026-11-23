@@ -4,6 +4,7 @@ One player draws a secret word while everyone else races to guess it. Score the 
 
 ## How to play
 - Players take turns to draw. Everyone draws twice, so a game has two rounds per player.
+- A random player draws first in the first game. On each **PLAY AGAIN**, the next player in the party draws first.
 - At the start of each round the drawer is given a word. Only they can see it.
 - The drawer has **60 seconds** to draw it. Everyone else sees a blank for each letter of the word.
 - Guessers type guesses into the chat. A guess must be the exact word; capitals do not matter.

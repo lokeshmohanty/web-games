@@ -1,16 +1,18 @@
 #!/usr/bin/env node
 /**
- * test-bubble-rush.mjs — the flight of a bubble, scoring, the host's judgement
- * of a tap, the round as the platform runs it, and bots, with no field drawn.
+ * test-bubble-rush.mjs — the flight of a bubble, scoring, a tap judged on the
+ * tapping phone and taken by the host, the round as the platform runs it, and
+ * bots, with no field drawn.
  *
  *   node bubble-rush/test-bubble-rush.mjs
  *
  * Every phone draws every bubble from the round clock, so a bubble must be
- * fixed when it spawns, and the same seed must spawn the same field. The host
- * is the only judge of a tap, so the judging is tested hard: a tap on empty
- * field, on a bubble already popped, from too far back in time. And the whole
- * round is plain JSON, so the heir's copy must carry on exactly as the host
- * would have.
+ * fixed when it spawns, and the same seed must spawn the same field. A tap is
+ * judged on the phone that made it (Lokesh, 2026-11-21) and the host takes its
+ * word, so the two must come to the same score for every tap: pops, denials,
+ * bombs, misses, streaks broken by a pause, two phones on one bubble. And the
+ * whole round is plain JSON, so the heir's copy must carry on exactly as the
+ * host would have.
  */
 import { readFileSync } from "node:fs";
 
@@ -18,9 +20,9 @@ import { readFileSync } from "node:fs";
 new Function(readFileSync(new URL("./bubble-rush-rules.js", import.meta.url), "utf8"))();
 const R = globalThis.bubbleRushRules;
 const {
-	ROUND_MS, COUNT_MS, FRENZY_MS, HZ, STUN_MS, STREAK_MS, LAG_MS, LEAD_MS, BOT_EVERY_MS, TAPS_PER_TICK,
+	ROUND_MS, COUNT_MS, FRENZY_MS, HZ, STUN_MS, STREAK_MS, KEEP_MS, LEAD_MS, BOT_EVERY_MS,
 	rngFrom, riseMs, bombChance, spawnInterval, makeBubble, pack, unpack, progress, position, alive, multiplier, popPoints,
-	hitTest, teamScores, ranking, teamRanking, botPick, game,
+	hitTest, judgeTap, tapTime, teamScores, ranking, teamRanking, botPick, game,
 } = R;
 
 let failures = 0;
@@ -146,23 +148,23 @@ function still(g, id, x, y, kind = "n", team = null) {
 	const p = (1.08 - y) / 1.16; // where in its flight it is at height y
 	return { id, k: kind, s: kind === "n" ? 0 : null, team, r: size.r, pts: size.pts, born: Math.round(t - p * dur), dur, x0: x, amp: 0, freq: 1, ph: 0 };
 }
+/** The bell and the grace after it (GRACE_MS): tick until the round is over. */
+function bell(g) {
+	for (let i = 0; i < 20 && g.view({ seat: null }).phase !== "over"; i++) g.tick({ inputs: {}, dt });
+}
 function place(g, bubbles) {
 	const s = clone(g.snapshot());
 	s.bubbles = bubbles;
 	s.spawnAt = ROUND_MS; // nothing else comes
 	g.restore({ snapshot: s });
 }
-// Taps also carry an honest field size (362 × 724, a 390 × 844 phone's).
-// The rules ignore it (the field is 1 : 2 everywhere); it is there so these
-// tests can be run against the rules before the review of 2026-11-15, which
-// read it, to show each new test fails on them.
-const FIELD = { w: 362, h: 724 };
-/** A tap on bubble `b` as a phone drawing round time `t` would send it. */
+/** A pop of bubble `b`, judged on a phone drawing round time `t`, as bubble-rush.js sends it. */
 function tapOn(g, b, t = g.snapshot().t) {
 	const p = position(b, t);
-	return { tap: { x: p.x, y: p.y, t, ...FIELD } };
+	return { tap: { b: b.id, x: p.x, y: p.y, t: tapTime(t) } };
 }
-const tapAt = (x, y, t) => ({ tap: { x, y, t, ...FIELD } });
+/** A tap on empty field at (x, y): a miss, as the phone judged it. */
+const tapAt = (x, y, t) => ({ tap: { b: null, x, y, t: tapTime(t) } });
 
 console.log("\nscoring, the streak and what breaks it");
 
@@ -269,7 +271,7 @@ console.log("\nteams: your colour scores, theirs is denied");
 	s.t = ROUND_MS - 50;
 	s.spawnAt = ROUND_MS;
 	g.restore({ snapshot: s });
-	g.tick({ inputs: {}, dt });
+	bell(g);
 	const r = g.result();
 	check("teams: kind 'teams', the higher average first, each side one place", r?.kind === "teams" && JSON.stringify(r.ranking) === '[["b1"],["host","a2"]]', JSON.stringify(r));
 	check("…with each player's own score", r.scores.host === 30 && r.scores.a2 === 0 && r.scores.b1 === 50);
@@ -327,215 +329,257 @@ console.log("\nteams: your colour scores, theirs is denied");
 	check("…and an old host's pick is kept", g.view({ seat: null }).mode === "ffa" && !("chosen" in g.snapshot()));
 }
 
-console.log("\nthe host judges every tap");
+console.log("\nthe phone judges its tap, the host takes its word (Lokesh, 2026-11-21)");
 
 {
-	const g = start([person("host"), person("p2"), person("watcher")]);
+	// judgeTap, on its own: what the phone shows the moment the finger lands.
+	const b = { id: 1, k: "n", s: 0, team: null, r: R.SIZES[0].r, pts: 30, born: 0, dur: 4000, x0: 0.5, amp: 0, freq: 1, ph: 0 };
+	const gold = { ...b, id: 2, k: "g", s: null, pts: 50 };
+	const bomb = { ...b, id: 3, k: "x", s: null, pts: -25 };
+	const theirs = { ...b, id: 4, team: "B" };
+	let me = { streak: 0, lastPop: null, stun: null };
+	const got = judgeTap(me, b, 1000, "ffa", "A");
+	check("a pop: its points, the streak up, the pop's time kept", got.kind === "pop" && got.pts === 30 && got.me.streak === 1 && got.me.lastPop === 1000, JSON.stringify(got));
+	me = { streak: 7, lastPop: 1000, stun: null };
+	check("…×2 from the fifth pop on (a streak of 4 before it)", judgeTap({ streak: 4, lastPop: 1000, stun: null }, gold, 1500, "ffa", "A").pts === 100);
+	check(`…a pause of more than ${STREAK_MS} ms is back at ×1`, judgeTap(me, b, 1000 + STREAK_MS + 1, "ffa", "A").pts === 30 && judgeTap(me, b, 1000 + STREAK_MS, "ffa", "A").pts === 60);
+	check("a miss scores nothing and breaks the streak", (() => { const m = judgeTap(me, null, 1200, "ffa", "A"); return m.kind === "miss" && m.pts === 0 && m.me.streak === 0; })());
+	check("a bomb costs 25, breaks the streak and stuns", (() => { const x = judgeTap(me, bomb, 1200, "ffa", "A"); return x.kind === "bomb" && x.pts === -25 && x.me.streak === 0 && x.me.stun === 1200 + STUN_MS; })());
+	check("stunned, a tap does nothing at all (null)", judgeTap({ streak: 0, lastPop: null, stun: 2000 }, b, 1999, "ffa", "A") === null && judgeTap({ streak: 0, lastPop: null, stun: 2000 }, b, 2000, "ffa", "A") !== null);
+	check("in TEAMS the other side's colour is DENIED: nothing, but the streak goes on", (() => { const d = judgeTap(me, theirs, 1200, "teams", "A"); return d.kind === "deny" && d.pts === 0 && d.me.streak === 8; })());
+}
+
+{
+	// The phone and the host, tap for tap: a phone keeps its own ledger and
+	// score from judgeTap, the host scores what it is sent, and after every
+	// tap the host's view must say what the phone already showed. Random
+	// pops, misses, bombs and denials, at the phone's own times, its taps
+	// reaching the host up to a second late.
+	const seats = [person("host", "A"), person("p2", "B"), person("p3", "A")];
+	const g = start(seats, "teams", 5);
+	for (let i = 0; i < 30; i++) g.tick({ inputs: {}, dt });
+	const rng = rngFrom(31);
+	let me = { streak: 0, lastPop: null, stun: null };
+	let shown = 0;
+	let taps = 0;
+	let differ = null;
+	let lastT = g.snapshot().t;
+	for (let i = 0; i < 400 && g.view({ seat: null }).phase === "play" && !differ; i++) {
+		g.tick({ inputs: {}, dt });
+		if (rng() < 0.5) continue;
+		const s = g.snapshot();
+		// The phone draws a little behind the host; its taps go forward in time.
+		const t = tapTime(Math.max(lastT, s.t - rng() * 400));
+		lastT = t;
+		const live = s.bubbles.filter((b) => alive(b, t) && R.surfaced(b, t));
+		const b = rng() < 0.15 || !live.length ? null : live[Math.floor(rng() * live.length)];
+		const got = judgeTap(me, b, t, "teams", "B");
+		if (!got) continue; // stunned: the phone sends nothing
+		me = got.me;
+		shown += got.pts;
+		taps++;
+		const said = g.apply({ action: { tap: { b: b ? b.id : null, t, n: taps } }, by: "p2" });
+		const v = g.view({ seat: "p2" });
+		const host = { streak: v.mine.streak, lastPop: v.mine.lastPop, stun: v.mine.stun };
+		if (said != null || (v.scores.p2 ?? 0) !== shown || JSON.stringify(host) !== JSON.stringify({ streak: me.streak, lastPop: me.lastPop, stun: me.stun }))
+			differ = { tap: taps, said, host: v.scores.p2, shown, hostLedger: host, phone: me };
+	}
+	check(`after every tap the host's score and ledger are the phone's (${taps} taps)`, !differ && taps > 60, JSON.stringify(differ));
+	check("…pops, misses and bombs among them", (g.snapshot().stats.popped.p2 ?? 0) > 20 && (g.snapshot().stats.misses.p2 ?? 0) > 3, JSON.stringify(g.snapshot().stats));
+}
+
+{
+	const g = start([person("host"), person("p2"), person("p3"), person("watcher")]);
+	for (let i = 0; i < 30; i++) g.tick({ inputs: {}, dt });
 	const b = still(g, 7, 0.5, 0.5);
 	const far = still(g, 8, 0.15, 0.15);
 	place(g, [b, far]);
 	const t = g.snapshot().t;
-	check("a tap names no bubble: one that does is not a tap", typeof g.apply({ action: { tap: { id: 7 } }, by: "p2" }) === "string");
-	check("a tap on empty space pops nothing", g.apply({ action: tapAt(0.85, 0.85, t), by: "p2" }) == null && g.snapshot().bubbles.length === 2 && !g.view({ seat: null }).scores.p2);
-	check("…and counts as a miss", g.snapshot().stats.misses.p2 === 1);
-	// Just outside the bubble and its slack: still a miss. Distances are in
-	// field widths, the field being 1 : 2 on every phone.
-	const r = b.r + R.SLACK;
-	check("a finger just past the bubble's edge and the slack is a miss", (g.apply({ action: tapAt(0.5 + r + 0.005, 0.5, t), by: "p2" }), g.snapshot().bubbles.length === 2));
-	check("…and just inside it is a pop", g.apply({ action: tapAt(0.5 + r - 0.005, 0.5, t), by: "p2" }) == null && g.view({ seat: null }).scores.p2 === 30);
-	check("a tap on the bubble someone popped a moment ago is refused, without penalty", g.apply({ action: tapAt(0.5, 0.5, t), by: "host" }) === "someone popped it first" && !g.snapshot().stats.misses.host);
-	check("a watcher's tap counts for nothing", (g.apply({ action: tapOn(g, far), by: "spectator" }), g.snapshot().bubbles.length === 1));
-	check("garbage is refused", typeof g.apply({ action: { tap: { x: "a", y: 1, t } }, by: "p2" }) === "string" && typeof g.apply({ action: tapAt(5, 5, t), by: "p2" }) === "string");
+	// No window, no hit-test on the host: the phone's word is taken.
+	check("a pop names its bubble and the host takes it, wherever the finger was said to be", g.apply({ action: { tap: { b: 8, x: 0.9, y: 0.9, t } }, by: "p2" }) == null && !g.snapshot().bubbles.some((x) => x.id === 8) && g.view({ seat: null }).scores.p2 === 30);
+	check("…and whenever the phone saw it: 2 s behind the host's clock still counts", g.apply({ action: { tap: { b: 7, t: t - 2000 } }, by: "p3" }) == null && g.view({ seat: null }).scores.p3 === 30);
+	check("…the pop shows on every phone: the event, at the bubble's place at that time", g.snapshot().events.at(-1).by === "p3" && g.snapshot().events.at(-1).x === 0.5);
+	// Two phones on one bubble: both keep the pop (the host chose it so:
+	// nothing is ever taken back from a phone that showed it).
+	check("a second phone's pop of a bubble just popped scores for it too: both keep the pop", g.apply({ action: { tap: { b: 7, t } }, by: "host" }) == null && g.view({ seat: null }).scores.host === 30 && g.view({ seat: null }).scores.p3 === 30);
+	check("…the bubble left the field once, and every phone sees both pops", !g.snapshot().bubbles.some((x) => x.id === 7) && g.snapshot().events.filter((e) => e.k === "n").length === 3);
+	check("the same phone twice on one bubble: refused, scored once", g.apply({ action: { tap: { b: 7, t } }, by: "p3" }) === "that bubble is gone" && g.view({ seat: null }).scores.p3 === 30);
+	// Long gone: nothing to place, and the phone's score settles on the host's.
+	for (let i = 0; i < KEEP_MS / 100 + 2; i++) g.tick({ inputs: {}, dt });
+	check(`a pop of a bubble the host let go of (${KEEP_MS} ms after it went) is refused, scoring nothing`, g.apply({ action: { tap: { b: 7, t } }, by: "p2" }) === "that bubble is gone" && g.view({ seat: null }).scores.p2 === 30);
+	check("a bubble that never was: refused", g.apply({ action: { tap: { b: 999, t } }, by: "p2" }) === "that bubble is gone");
+	check("a watcher's tap counts for nothing", g.apply({ action: { tap: { b: null, t } }, by: "spectator" }) === "you are watching");
+	const said = [{ t: NaN }, { t: Infinity }, { t: null }, { t: "1000" }, {}].map((tap) => g.apply({ action: { tap: { b: null, ...tap } }, by: "p2" }));
+	check("a tap with no usable time is not a tap, and counts nothing, not a miss", said.every((r) => r === "not a tap") && !g.snapshot().stats.misses.p2, JSON.stringify(said));
 }
 
 {
-	// Latency: a phone draws a beat behind the host. The bubble is judged
-	// where that phone drew it, but only within LAG_MS of the host's clock.
+	// The streak runs on the phone's clock: two pops 1.4 s apart on the phone
+	// keep it, however late the second reaches the host.
 	const g = start([person("host"), person("p2")]);
-	for (let i = 0; i < 20; i++) g.tick({ inputs: {}, dt });
-	const b = still(g, 1, 0.5, 0.6);
-	place(g, [b]);
+	place(g, [still(g, 1, 0.3, 0.5), still(g, 2, 0.6, 0.5)]);
 	const t = g.snapshot().t;
-	const then = t - 300; // where p2 saw it, 300 ms ago
-	const old = position(b, then);
-	check("the bubble has moved on since (a tap where it was would miss it now)", !hitTest([b], old.x, old.y, t));
-	check("a tap where the phone drew it 300 ms ago pops it", g.apply({ action: tapAt(old.x, old.y, then), by: "p2" }) == null && g.view({ seat: null }).scores.p2 === 30);
-	const c = still(g, 2, 0.5, 0.6);
-	place(g, [c]);
-	const long = t - 900; // further back than the window allows
-	const ghost = position(c, long);
-	const said = g.apply({ action: tapAt(ghost.x, ghost.y, long), by: "p2" });
-	check("a phone cannot claim a time further back than the window", said == null && g.snapshot().bubbles.length === 1 && g.snapshot().stats.misses.p2 === 1, `${said} ${JSON.stringify(ghost)} ${g.snapshot().bubbles.length} ${g.snapshot().stats.misses.p2}`);
-	check(`…the window is ${LAG_MS} ms`, LAG_MS >= 300 && LAG_MS <= 800);
-	// A flood within one tick is capped.
-	g.tick({ inputs: {}, dt });
-	const many = Array.from({ length: TAPS_PER_TICK + 2 }, () => g.apply({ action: tapAt(0.9, 0.1, t), by: "p2" }));
-	check(`at most ${TAPS_PER_TICK} taps a tick each`, many.filter((x) => x === "too fast").length === 2, JSON.stringify(many));
-}
-
-console.log("\nno bubble before its time (review, 2026-11-15)");
-
-{
-	// The views carry bubbles 400 ms before they are born. A guest that taps
-	// where one will be, claiming a time ahead of the host, must get nothing:
-	// snipe.mjs popped 201 of 201 this way, golden ones included.
-	const g = start([person("host"), person("p2"), person("p3")]);
-	for (let i = 0; i < 50; i++) g.tick({ inputs: {}, dt });
-	let tried = 0;
-	let popped = 0;
-	for (let k = 0; k < 200; k++) {
-		const s = g.snapshot();
-		for (const b of s.bubbles.filter((b) => b.born > s.t && b.born <= s.t + 150).slice(0, 3)) {
-			tried++;
-			const when = s.t + 150;
-			const p = position(b, when);
-			g.apply({ action: tapAt(p.x, Math.min(1.1, p.y), when), by: "p2" });
-			if (!g.snapshot().bubbles.some((x) => x.id === b.id)) popped++;
-		}
-		g.tick({ inputs: {}, dt });
-	}
-	check(`a bubble not yet born on the host cannot be popped (${popped} of ${tried})`, tried > 50 && popped === 0);
+	g.apply({ action: { tap: { b: 1, t } }, by: "p2" });
+	for (let i = 0; i < 25; i++) g.tick({ inputs: {}, dt }); // 2.5 s on the host
+	g.apply({ action: { tap: { b: 2, t: t + 1400 } }, by: "p2" });
+	check("pops 1.4 s apart by the phone, 2.5 s apart on the host: the streak holds (2)", g.snapshot().streaks.p2 === 2, JSON.stringify(g.snapshot().streaks));
 }
 
 {
+	// A stunned phone sends nothing; if a tap does come, the host's judgement
+	// is the phone's: nothing happens.
 	const g = start([person("host"), person("p2")]);
-	for (let i = 0; i < 10; i++) g.tick({ inputs: {}, dt });
+	place(g, [still(g, 1, 0.3, 0.5, "x"), still(g, 2, 0.6, 0.5)]);
 	const t = g.snapshot().t;
-	// Born a moment ago, its centre still below the bottom edge: not on the field.
-	const low = { id: 1, k: "g", s: null, team: null, r: R.GOLDEN.r, pts: 50, born: t - 40, dur: 3000, x0: 0.5, amp: 0, freq: 1, ph: 0 };
-	place(g, [low]);
-	const at = position(low, t);
-	check("a bubble still below the field cannot be hit", at.y > 1 && typeof g.apply({ action: tapAt(0.5, Math.min(1.1, at.y), t), by: "p2" }) === "string" && g.snapshot().bubbles.length === 1);
-	check("…nor reached from the bottom edge", g.apply({ action: tapAt(0.5, 1, t), by: "p2" }) == null && g.snapshot().bubbles.length === 1);
-	check("a tap below the field is refused", g.apply({ action: tapAt(0.5, 1 + R.EDGE + 0.01, t), by: "p2" }) === "not on the field");
+	g.apply({ action: { tap: { b: 1, t } }, by: "p2" });
+	check("a bomb, then a tap within the stun: refused, the bubble stays", g.apply({ action: { tap: { b: 2, t: t + 500 } }, by: "p2" }) === "stunned" && g.snapshot().bubbles.some((x) => x.id === 2));
+	check("…and once it wears off (the phone's time), the pop counts", g.apply({ action: { tap: { b: 2, t: t + STUN_MS } }, by: "p2" }) == null && g.view({ seat: null }).scores.p2 === -25 + 30);
 }
 
 {
-	// Ahead of the host's clock: only the host's own seat, whose phone carries
-	// the clock on between ticks (bubble-rush.js EXTRA_MS, 250 ms).
-	check("the host's seat may be ahead by at least the phone's 250 ms", R.AHEAD_MS >= 250);
-	const g = start([person("host"), person("p2")]);
-	for (let i = 0; i < 10; i++) g.tick({ inputs: {}, dt });
-	const b = still(g, 1, 0.5, 0.6);
-	place(g, [b]);
-	const t = g.snapshot().t;
-	const later = t + 240;
-	const p = position(b, later);
-	g.apply({ action: tapAt(p.x, p.y, later), by: "p2" });
-	check("a guest's tap is judged at most one tick ahead of the host's clock (240 ms ahead misses here)", g.snapshot().bubbles.length === 1 && g.snapshot().stats.misses.p2 === 1);
-	check("the host's own tap 240 ms ahead, centred where its phone drew it, pops it", g.apply({ action: tapAt(p.x, p.y, later), by: "host" }) == null && g.view({ seat: null }).scores.host === 30);
-}
-
-{
-	// A guest's phone runs its clock on between views while the host's moves
-	// once a tick, so its honest tap is ahead of the host's clock by up to a
-	// tick less the round trip. Judged at the host's clock instead, a tap on a
-	// quick golden bubble late in the round missed one time in six (re-review,
-	// 2026-11-15, repro4). Each phone below taps a random point of the bubble
-	// as drawn, RTT 20 ms, the tap landing at a random moment of the tick.
-	const g = start([person("host"), person("p2")]);
-	const base = clone(g.snapshot());
-	const rng = rngFrom(77);
-	let hits = 0;
-	const N = 600;
-	for (let i = 0; i < N; i++) {
-		const t = 55_000;
-		const dur = Math.round(riseMs(t) * R.GOLDEN.speed);
-		const b = { id: 1, k: "g", s: null, team: null, r: R.GOLDEN.r, pts: 50, born: t - dur * (0.2 + 0.6 * rng()), dur, x0: 0.5, amp: 0.02 + rng() * 0.04, freq: 1 + rng() * 1.5, ph: rng() * 6.28 };
-		const ahead = Math.max(0, rng() * 100 - 20);
-		const p = position(b, t + ahead);
-		const a = rng() * Math.PI * 2;
-		const d = Math.sqrt(rng()) * b.r;
-		g.restore({ snapshot: { ...clone(base), t, bubbles: [b], gone: [], spawnAt: ROUND_MS, lastT: {} } });
-		g.apply({ action: tapAt(p.x + Math.cos(a) * d, p.y + Math.sin(a) * d * R.FIELD_ASPECT, t + ahead), by: "p2" });
-		if (!g.snapshot().bubbles.length) hits++;
-	}
-	check(`a guest's honest tap on a golden bubble in the frenzy lands (${hits} of ${N}, RTT 20 ms)`, hits === N);
-}
-
-{
-	// The host's phone runs up to 250 ms ahead: a bubble born after the host's
-	// last tick, already on its screen, is its to pop; a guest claiming the
-	// same time is held to one tick and cannot reach it.
-	const g = start([person("host"), person("p2")]);
-	for (let i = 0; i < 400; i++) g.tick({ inputs: {}, dt });
-	const t = g.snapshot().t;
-	const dur = Math.round(riseMs(t) * R.GOLDEN.speed);
-	const b = { id: 1, k: "g", s: null, team: null, r: R.GOLDEN.r, pts: 50, born: t + 100, dur, x0: 0.5, amp: 0, freq: 1, ph: 0 };
-	place(g, [b]);
-	const p = position(b, t + 250);
-	g.apply({ action: tapAt(p.x, p.y, t + 250), by: "p2" });
-	check("a guest cannot reach a bubble born after the host's clock by claiming 250 ms ahead", g.snapshot().bubbles.length === 1);
-	check("…the host's own phone, drawing it 250 ms ahead and surfaced, pops it", g.apply({ action: tapAt(p.x, p.y, t + 250), by: "host" }) == null && g.view({ seat: null }).scores.host === 50);
-}
-
-{
-	// A player's taps never go back in time: no sweeping the window for the
-	// moment a bubble was under the finger.
-	const g = start([person("host"), person("p2")]);
-	for (let i = 0; i < 20; i++) g.tick({ inputs: {}, dt });
-	const b = still(g, 1, 0.5, 0.6);
-	place(g, [b]);
-	const t = g.snapshot().t;
-	g.apply({ action: tapAt(0.1, 0.1, t), by: "p2" });
-	const before = position(b, t - 300);
-	g.apply({ action: tapAt(before.x, before.y, t - 300), by: "p2" });
-	check("after a tap at t, a tap claiming t − 300 ms is judged at t", g.snapshot().bubbles.length === 1 && g.snapshot().stats.misses.p2 === 2);
-}
-
-{
-	// Two players on the same bubble in one tick, a neighbour within reach of
-	// the second: the second is refused, not handed the neighbour.
-	const g = start([person("host"), person("p2"), person("p3")]);
-	const one = still(g, 1, 0.5, 0.5);
-	const two = still(g, 2, 0.56, 0.5);
-	place(g, [one, two]);
-	const t = g.snapshot().t;
-	g.apply({ action: tapAt(0.5, 0.5, t), by: "p2" });
-	check("the same spot a moment later: someone popped it first, the neighbour stays", g.apply({ action: tapAt(0.5, 0.5, t), by: "p3" }) === "someone popped it first" && g.snapshot().bubbles.length === 1 && !g.view({ seat: null }).scores.p3);
-}
-
-console.log("\none field, whatever the phone says about its screen");
-
-{
-	// The field is 1 : 2 on every phone, so a phone has nothing to claim. The
-	// review's repro: claiming 240×240 on a 362×650 field doubled how far
-	// below a bubble a tap still popped it.
-	const reach = R.SIZES[0].r + R.SLACK;
-	const claims = [{ w: 240, h: 240 }, { w: 240, h: 4000 }, { w: 4000, h: 240 }, { w: NaN, h: Infinity }, { w: -5, h: -5 }, { w: 1e300, h: 1e300 }, {}];
-	const results = claims.map((claim) => {
-		const g = start([person("host"), person("p2")]);
-		const b = still(g, 1, 0.5, 0.5);
-		place(g, [b]);
-		const t = g.snapshot().t;
-		const out = (g.apply({ action: { tap: { x: 0.5, y: 0.5 + (reach + 0.01) * R.FIELD_ASPECT, t, ...claim } }, by: "p2" }), g.snapshot().bubbles.length === 1);
-		const inside = g.apply({ action: { tap: { x: 0.5, y: 0.5 + (reach - 0.01) * R.FIELD_ASPECT, t, ...claim } }, by: "p2" }) == null && g.snapshot().bubbles.length === 0;
-		return out && inside;
-	});
-	check("a claimed screen size (any shape, NaN, negative, huge) changes nothing: just past the reach misses, just inside pops", results.every(Boolean), JSON.stringify(results));
-	const b = { id: 1, k: "n", s: 0, team: null, r: R.SIZES[0].r, pts: 30, born: 0, dur: 4000, x0: 0.5, amp: 0, freq: 1, ph: 0 };
-	const c = position(b, 2000);
-	const d = reach - 0.002;
-	check("…and the reach is the same across as down, in field widths", !!hitTest([b], c.x + d, c.y, 2000) && !!hitTest([b], c.x, c.y + d * R.FIELD_ASPECT, 2000) && !hitTest([b], c.x, c.y + (reach + 0.002) * R.FIELD_ASPECT, 2000));
-}
-
-{
-	const g = start([person("host"), person("p2")]);
-	const t = g.snapshot().t;
-	const said = [{ x: NaN, y: 0.5, t }, { x: 0.5, y: 0.5, t: Infinity }, { x: 0.5, y: 0.5, t: -Infinity }, { x: 0.5, y: 0.5, t: null }, { x: "0.5", y: 0.5, t }, { x: 0.5, y: [0.5], t }].map((tap) => g.apply({ action: { tap }, by: "p2" }));
-	check("NaN, Infinity, null or strings for x, y or t are not a tap", said.every((r) => r === "not a tap"), JSON.stringify(said));
-	check("…and count as nothing, not a miss", !g.snapshot().stats.misses.p2);
-}
-
-{
-	// Each judged tap is acknowledged to its phone, which keeps a bubble it
-	// popped on its own hidden until then.
+	// A phone on the old rules sends only where the finger landed and when:
+	// the host hit-tests it at that time (a party mid-update keeps playing).
 	const g = start([person("host"), person("p2")]);
 	place(g, [still(g, 1, 0.5, 0.5)]);
 	const t = g.snapshot().t;
-	g.apply({ action: { tap: { x: 0.9, y: 0.1, t, n: 5 } }, by: "p2" });
+	g.apply({ action: { tap: { x: 0.9, y: 0.1, t } }, by: "p2" });
+	check("an old phone's tap on empty field: a miss", g.snapshot().stats.misses.p2 === 1 && g.snapshot().bubbles.length === 1);
+	check("…and on the bubble: a pop", g.apply({ action: { tap: { x: 0.5, y: 0.5, t } }, by: "p2" }) == null && g.view({ seat: null }).scores.p2 === 30);
+}
+
+{
+	// hitTest is the phone's own judge of where the finger landed: the
+	// bubble's radius and a fingertip's slack, the same across as down, in
+	// field widths (the field is 1 : 2 on every phone).
+	const reach = R.SIZES[0].r + R.SLACK;
+	const b = { id: 1, k: "n", s: 0, team: null, r: R.SIZES[0].r, pts: 30, born: 0, dur: 4000, x0: 0.5, amp: 0, freq: 1, ph: 0 };
+	const c = position(b, 2000);
+	const d = reach - 0.002;
+	check("a finger within the bubble and its slack hits it, across as down; just past it misses", !!hitTest([b], c.x + d, c.y, 2000) && !!hitTest([b], c.x, c.y + d * R.FIELD_ASPECT, 2000) && !hitTest([b], c.x, c.y + (reach + 0.002) * R.FIELD_ASPECT, 2000));
+	const low = { ...b, k: "g", r: R.GOLDEN.r, born: 1960, dur: 3000 };
+	check("…a bubble still below the field, or not yet born, is not there to hit", !hitTest([low], 0.5, 1, 2000) && !hitTest([{ ...b, born: 2500 }], c.x, c.y, 2000));
+}
+
+{
+	// Each tap is acknowledged to its phone, with that player's ledger: the
+	// phone shows the host's score plus its own taps not yet taken, and
+	// carries its ledger on from the host's once all are.
+	const g = start([person("host"), person("p2")]);
+	place(g, [still(g, 1, 0.5, 0.5)]);
+	const t = g.snapshot().t;
+	g.apply({ action: { tap: { b: null, t, n: 5 } }, by: "p2" });
+	g.apply({ action: { tap: { b: 1, t: t + 100, n: 6 } }, by: "p2" });
 	const v = g.view({ seat: "p2" });
-	check("the tap's number comes back in that phone's view, with its misses", v.ack === 5 && v.mine?.misses === 1 && g.view({ seat: "host" }).ack === 0, JSON.stringify({ ack: v.ack, mine: v.mine }));
+	check("the tap's number comes back in that phone's view, with its ledger and counts", v.ack === 6 && v.mine?.misses === 1 && v.mine.popped === 1 && v.mine.streak === 1 && v.mine.lastPop === tapTime(t + 100) && g.view({ seat: "host" }).ack === 0, JSON.stringify({ ack: v.ack, mine: v.mine }));
+}
+
+console.log("\nthe review of 2026-11-22");
+
+{
+	// The round's last moment: a phone pops a bubble in its last frame, but
+	// the host's last tick ends the round before the tap lands. The round is
+	// held open a moment (GRACE_MS, the field frozen at the bell) for taps
+	// made by then, so the end card counts what the phone showed.
+	const g = start([person("host"), person("p2")], null, 1);
+	while (g.snapshot().t < ROUND_MS - 100) g.tick({ inputs: {}, dt });
+	const v = g.view({ seat: "p2" });
+	const t = tapTime(v.t + 60);
+	const b = v.bubbles.map(unpack).find((x) => alive(x, t) && R.surfaced(x, t) && x.k !== "x");
+	const shown = judgeTap({ streak: v.mine.streak, lastPop: v.mine.lastPop, stun: v.mine.stun }, b, t, v.mode, "A").pts;
+	g.tick({ inputs: {}, dt }); // the bell, on the host
+	check("at the bell the round is held open, the field frozen at 60 s", g.view({ seat: null }).phase === "play" && g.view({ seat: null }).t === ROUND_MS && typeof R.GRACE_MS === "number" && R.GRACE_MS >= 300 && R.GRACE_MS <= 500);
+	const said = g.apply({ action: { tap: { b: b.id, born: b.born, k: b.k, t, n: 7 } }, by: "p2" });
+	check("a pop the phone made before the bell, landing after it, counts", said == null && g.view({ seat: "p2" }).scores.p2 === shown && g.view({ seat: "p2" }).ack === 7, JSON.stringify({ said, host: g.view({ seat: null }).scores, shown }));
+	const before = clone(g.snapshot().bubbles);
+	for (let i = 0; i < R.GRACE_MS / 100 - 1; i++) g.tick({ inputs: {}, dt });
+	check("…nothing new rises during the grace, and the clock stays at the bell", g.view({ seat: null }).phase === "play" && g.snapshot().t === ROUND_MS && g.snapshot().bubbles.length <= before.length);
+	g.tick({ inputs: {}, dt });
+	check(`…then, ${R.GRACE_MS} ms on, the round ends, the end card holding that pop`, g.view({ seat: null }).phase === "over" && g.result()?.scores.p2 === shown, JSON.stringify(g.result()?.scores));
+	// Too late even for the grace: refused, but acknowledged, so the phone
+	// settles on the host's score instead of keeping its own for good.
+	const late = g.apply({ action: { tap: { b: null, t: ROUND_MS, n: 8 } }, by: "p2" });
+	check("a tap after the round is over is refused, and still acknowledged", late === "the round is not on" && g.view({ seat: "p2" }).ack === 8);
+	check("…as is a watcher's", typeof g.apply({ action: { tap: { b: null, t: 1, n: 3 } }, by: "spectator" }) === "string" && g.view({ seat: "spectator" }).ack === 3);
+	const mid = start([person("host"), person("p2")]);
+	check("…and, mid-round, a watcher's and one with no usable time", mid.apply({ action: { tap: { b: null, t: 1, n: 4 } }, by: "spectator" }) === "you are watching" && mid.apply({ action: { tap: { t: null, n: 5 } }, by: "p2" }) === "not a tap" && mid.view({ seat: "spectator" }).ack === 4 && mid.view({ seat: "p2" }).ack === 5);
+}
+
+{
+	// The grace is for taps made before the bell, still on their way. After
+	// it the field shows 0 s and stands still: a touch then pops nothing.
+	const g = start([person("host"), person("p2")]);
+	while (g.snapshot().t < ROUND_MS) g.tick({ inputs: {}, dt });
+	const live = () => g.view({ seat: "p2" }).bubbles.map(unpack).filter((x) => alive(x, ROUND_MS) && R.surfaced(x, ROUND_MS) && x.k !== "x");
+	const after = live()[0];
+	const said = g.apply({ action: { tap: { b: after.id, born: after.born, k: after.k, x0: after.x0, t: ROUND_MS, n: 1 } }, by: "p2" });
+	check("a tap made at the bell, on the frozen field, is refused (and acknowledged)", typeof said === "string" && !g.view({ seat: null }).scores.p2 && g.view({ seat: "p2" }).ack === 1, JSON.stringify({ said, scores: g.view({ seat: null }).scores }));
+	const before = live()[0];
+	check("…while one made a moment before the bell, arriving now, counts", g.apply({ action: { tap: { b: before.id, born: before.born, k: before.k, x0: before.x0, t: ROUND_MS - 1, n: 2 } }, by: "p2" }) == null && g.view({ seat: null }).scores.p2 > 0);
+	check("…and a time just short of the bell stays short of it on the wire", tapTime(ROUND_MS - 0.4) < ROUND_MS);
+}
+
+{
+	// No bot taps in the grace either.
+	const g = start([person("host"), robot("bot_1")]);
+	while (g.snapshot().t < ROUND_MS) g.tick({ inputs: {}, dt });
+	check("bots stop at the bell, though the round is held open", g.view({ seat: null }).phase === "play" && g.bot({ seat: "bot_1" }) === null);
+}
+
+{
+	// After a handover the heir's field is its own: it carries on from a copy
+	// up to a second old, and its random stream drifts from the old host's
+	// (a bot's draws land elsewhere), so bubble N on the heir is born when it
+	// was on the old host (spawn times draw nothing) but is another bubble:
+	// another size, colour, place. A pop carries the bubble's birth, kind and
+	// starting place (x0, drawn from the stream), and when the named bubble
+	// is not that one, the heir finds what was under the finger instead.
+	const host = start([person("host"), person("p2"), person("p3")], null, 21);
+	for (let i = 0; i < 20; i++) host.tick({ inputs: {}, dt });
+	const copy = clone(host.snapshot());
+	const heir = game({ isHost: (id) => id === "p2" });
+	// The heir's stream a few draws on from the host's: where real drift comes from.
+	heir.restore({ snapshot: { ...copy, rng: (copy.rng + 3 * 0x6d2b79f5) >>> 0 } });
+	let pair = null;
+	for (let i = 0; i < 80 && !pair; i++) {
+		host.tick({ inputs: {}, dt });
+		heir.tick({ inputs: {}, dt });
+		const t = host.snapshot().t;
+		for (const a of host.snapshot().bubbles) {
+			const b = heir.snapshot().bubbles.find((x) => x.id === a.id);
+			if (b && b.born === a.born && b.k === a.k && Math.abs(b.x0 - a.x0) > 0.25 && alive(a, t) && R.surfaced(a, t) && alive(b, t) && R.surfaced(b, t)) pair = { a, b, t };
+		}
+	}
+	check("drift: an id the heir and the old host both have, born at once, of one kind, in two places", !!pair);
+	if (pair) {
+		const { a, t } = pair;
+		const p = position(a, t); // where the old host's view drew it, and the finger landed
+		const drawn = unpack(pack(a)); // as the phone had it, off the wire
+		heir.apply({ action: { tap: { b: a.id, born: drawn.born, k: drawn.k, x0: drawn.x0, x: p.x, y: p.y, t: tapTime(t) } }, by: "p3" });
+		const under = hitTest(heir.snapshot().bubbles.concat(heir.snapshot().gone.map((g) => g.b)), p.x, p.y, tapTime(t));
+		check("a pop naming a drifted id does not pop the heir's bubble of that id, far from the finger", heir.snapshot().bubbles.some((x) => x.id === a.id), JSON.stringify({ id: a.id, left: heir.snapshot().bubbles.map((x) => x.id) }));
+		check("…it scores what was under the finger on the heir's field, or nothing", (heir.view({ seat: null }).scores.p3 ?? 0) === 0 || !!under);
+	}
+	const g = start([person("host"), person("p2")]);
+	const bomb = still(g, 5, 0.2, 0.3, "x");
+	const there = still(g, 9, 0.6, 0.6);
+	place(g, [bomb, there]);
+	const t = g.snapshot().t;
+	const p = position(there, t);
+	g.apply({ action: { tap: { b: 5, born: bomb.born, k: "n", x0: there.x0, x: p.x, y: p.y, t } }, by: "p2" });
+	check("a pop whose named bubble here is of another kind scores the one under the finger, not the bomb", g.view({ seat: null }).scores.p2 === 30 && g.snapshot().bubbles.some((x) => x.id === 5) && !g.snapshot().bubbles.some((x) => x.id === 9), JSON.stringify({ scores: g.view({ seat: null }).scores, left: g.snapshot().bubbles.map((x) => x.id) }));
+	place(g, [still(g, 11, 0.5, 0.5)]);
+	const one = g.snapshot().bubbles[0];
+	g.apply({ action: { tap: { b: 11, born: one.born, k: "n", x0: one.x0, x: 0.01, y: 0.01, t } }, by: "p2" });
+	check("…a pop whose bubble matches is taken by its id, wherever the finger was said to be", !g.snapshot().bubbles.length && g.view({ seat: null }).scores.p2 === 60);
+}
+
+{
+	// Two phones on one bubble: both score, but the end card's counts are of bubbles.
+	const g = start([person("host"), person("p2")]);
+	place(g, [still(g, 1, 0.3, 0.5, "g"), still(g, 2, 0.7, 0.5)]);
+	const t = g.snapshot().t;
+	for (const by of ["host", "p2"]) g.apply({ action: { tap: { b: 1, t } }, by });
+	check("a golden bubble both phones popped: both score it, but it is one bubble popped, one golden caught", g.view({ seat: null }).scores.host === 50 && g.view({ seat: null }).scores.p2 === 50 && g.snapshot().pops === 1 && g.snapshot().stats.golden === 1, JSON.stringify({ pops: g.snapshot().pops, golden: g.snapshot().stats.golden }));
 }
 
 console.log("\nresults: alone, leavers, emptied sides");
@@ -548,7 +592,7 @@ console.log("\nresults: alone, leavers, emptied sides");
 	const s = clone(g.snapshot());
 	s.t = ROUND_MS;
 	g.restore({ snapshot: s });
-	g.tick({ inputs: {}, dt });
+	bell(g);
 	const r = g.result();
 	check("alone and below zero: the score reported is 0, the title says what it was", r?.kind === "coop" && r.scores.host === 0 && r.title === "-25 POINTS", JSON.stringify(r && { scores: r.scores, title: r.title }));
 }
@@ -560,7 +604,7 @@ console.log("\nresults: alone, leavers, emptied sides");
 	const s = clone(g.snapshot());
 	s.t = ROUND_MS;
 	g.restore({ snapshot: s });
-	g.tick({ inputs: {}, dt });
+	bell(g);
 	const r = g.result();
 	check("a round begun by two is free-for-all even when one leaves (not a solo run)", r?.kind === "ffa" && JSON.stringify(r.ranking) === '[["host"]]', JSON.stringify(r && { kind: r.kind, ranking: r.ranking }));
 }
@@ -583,7 +627,7 @@ console.log("\nresults: alone, leavers, emptied sides");
 	const s = clone(g.snapshot());
 	s.t = ROUND_MS;
 	g.restore({ snapshot: s });
-	g.tick({ inputs: {}, dt });
+	bell(g);
 	const r = g.result();
 	check("…A still wins, 60 to 30; the leaver is out of the places", r?.kind === "teams" && JSON.stringify(r.ranking) === '[["host"],["b1","b2"]]', JSON.stringify(r && r.ranking));
 }
@@ -597,7 +641,7 @@ console.log("\nresults: alone, leavers, emptied sides");
 	const s = clone(g.snapshot());
 	s.t = ROUND_MS;
 	g.restore({ snapshot: s });
-	g.tick({ inputs: {}, dt });
+	bell(g);
 	const r = g.result();
 	check("Team B emptied but ahead: kind 'teams', titled TEAM B WINS, B's place kept empty first", r?.kind === "teams" && r.title === "TEAM B WINS" && JSON.stringify(r.ranking) === '[[],["host"]]' && r.details[0].value === "Teams", JSON.stringify(r && { kind: r.kind, title: r.title, ranking: r.ranking }));
 }
@@ -611,7 +655,7 @@ console.log("\nresults: alone, leavers, emptied sides");
 	const s = clone(g.snapshot());
 	s.t = ROUND_MS;
 	g.restore({ snapshot: s });
-	g.tick({ inputs: {}, dt });
+	bell(g);
 	const r = g.result();
 	check("Team B emptied and behind: TEAM A WINS, B's place kept empty last", r?.kind === "teams" && r.title === "TEAM A WINS" && JSON.stringify(r.ranking) === '[["host"],[]]', JSON.stringify(r && { title: r.title, ranking: r.ranking }));
 }
@@ -627,7 +671,7 @@ console.log("\nresults: alone, leavers, emptied sides");
 	const s = clone(g.snapshot());
 	s.t = ROUND_MS;
 	g.restore({ snapshot: s });
-	g.tick({ inputs: {}, dt });
+	bell(g);
 	const r = g.result();
 	check("a teams tie with a leaver: one shared place, the leaver in it (a draw)", r?.kind === "teams" && r.title === "A TIE" && JSON.stringify(r.ranking) === '[["host","b1"]]' && r.scores.b1 === 30, JSON.stringify(r && { title: r.title, ranking: r.ranking, scores: r.scores }));
 }
@@ -652,7 +696,7 @@ console.log("\nthe round ends");
 		ticks++;
 	}
 	const v = g.view({ seat: "host" });
-	check(`a round is ${ROUND_MS / 1000} s of ticks`, v.phase === "over" && ticks === ROUND_MS / 100, `${ticks} ticks`);
+	check(`a round is ${ROUND_MS / 1000} s of ticks, and the ${R.GRACE_MS} ms grace after the bell`, v.phase === "over" && ticks === (ROUND_MS + R.GRACE_MS) / 100, `${ticks} ticks`);
 	check("the bots scored", (v.scores.bot_1 ?? 0) > 0 && (v.scores.bot_2 ?? 0) > 0, JSON.stringify(v.scores));
 	const r = g.result();
 	check("free-for-all: kind 'ffa', best first, everyone placed", r?.kind === "ffa" && r.ranking.flat().length === 3 && (r.scores[r.ranking[0][0]] ?? 0) >= (r.scores[r.ranking.at(-1)[0]] ?? 0), JSON.stringify(r?.ranking));
@@ -673,7 +717,7 @@ console.log("\nthe round ends");
 	const s = clone(g.snapshot());
 	s.t = ROUND_MS;
 	g.restore({ snapshot: s });
-	g.tick({ inputs: {}, dt });
+	bell(g);
 	const r = g.result();
 	check("alone: kind 'coop' with the score, titled in points", r?.kind === "coop" && r.scores.host === 50 && r.title === "50 POINTS", JSON.stringify(r));
 }
@@ -688,7 +732,7 @@ console.log("\nthe round ends");
 	const s = clone(g.snapshot());
 	s.t = ROUND_MS;
 	g.restore({ snapshot: s });
-	g.tick({ inputs: {}, dt });
+	bell(g);
 	check("…and they are left out of the places", JSON.stringify(g.result().ranking) === '[["host"]]', JSON.stringify(g.result()));
 }
 
@@ -742,7 +786,7 @@ console.log("\nsnapshot and restore");
 	const s = clone(done.snapshot());
 	s.t = ROUND_MS;
 	done.restore({ snapshot: s });
-	done.tick({ inputs: {}, dt });
+	bell(done);
 	const after = game();
 	after.restore({ snapshot: clone(done.snapshot()) });
 	check("a decided round restores decided, with the same result", JSON.stringify(after.result()) === JSON.stringify(done.result()) && after.result() !== null);
@@ -753,7 +797,7 @@ console.log("\nsnapshot and restore");
 	// after it, and the old host's last view was ahead of the copy. The heir
 	// carries on from the copy (that pop is lost, as docs say), its bots
 	// start from empty inputs, and a phone still drawing the old host's later
-	// time is judged at the heir's clock, never ahead of it.
+	// time has its pop taken, as it judged it.
 	const seats = [person("host"), robot("bot_1"), person("p2")];
 	const host = start(seats, null, 7);
 	const hi = {};
@@ -774,8 +818,8 @@ console.log("\nsnapshot and restore");
 	s.bubbles.push(b);
 	heir.restore({ snapshot: s });
 	const drawn = position(b, ahead);
-	heir.apply({ action: tapAt(drawn.x, drawn.y, ahead), by: "host" }); // the old host is a guest now
-	check("a phone drawing the old host's later time is judged at the heir's clock (a miss here)", heir.snapshot().bubbles.some((x) => x.id === 999) && heir.snapshot().stats.misses.host === 1);
+	heir.apply({ action: { tap: { b: 999, x: drawn.x, y: drawn.y, t: tapTime(ahead) } }, by: "host" }); // the old host is a guest now
+	check("a phone drawing the old host's later time: its pop is taken by the heir, as it judged it", !heir.snapshot().bubbles.some((x) => x.id === 999) && (heir.snapshot().stats.popped.host ?? 0) === (copy.stats.popped.host ?? 0) + 1);
 	const ei = {};
 	for (let i = 0; i < 700 && heir.result() === null; i++) step(heir, ei);
 	check("…and the heir plays the round out from empty inputs, its bot still popping", heir.result() !== null && (heir.snapshot().stats.popped.bot_1 ?? 0) > (copy.stats.popped.bot_1 ?? 0) + 20);
