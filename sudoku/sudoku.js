@@ -38,7 +38,10 @@ style.textContent = `
 	.su-racer span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.su-bar { height: 5px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
 	.su-bar i { display: block; height: 100%; background: currentColor; transition: width 0.3s; }
-	.su-grid { display: grid; grid-template-columns: repeat(9, 1fr); aspect-ratio: 1;
+	/* Nine equal rows, not rows sized by what is in them: a row with no
+	   given digit (a random puzzle may deal one) shrank to a sliver, 13px of
+	   a 40px board, until something was written in it. */
+	.su-grid { display: grid; grid-template-columns: repeat(9, 1fr); grid-template-rows: repeat(9, 1fr); aspect-ratio: 1;
 		width: min(100%, calc(100dvh - 330px)); min-width: 260px;
 		border: 2px solid var(--ink); border-radius: 6px; overflow: hidden;
 		background: var(--surface); user-select: none; touch-action: manipulation; }
