@@ -5,7 +5,7 @@
   "name": "SNAKES & LADDERS",
   "title": "Snakes & Ladders",
   "blurb": "Roll, climb the ladders, dodge the snakes. A new board every game. Two to six players.",
-  "description": "The race up a hundred squares, with a new board dealt every game: the snakes and ladders move, but every board is checked to be fair and to play in a few minutes. Tap the die to roll; first to land exactly on 100 wins. Two to six players; bots fill empty seats if you want them.",
+  "description": "The race up a hundred squares, with a new board dealt every game: the snakes and ladders move, but every board is checked to be fair. Tap the die to roll; land exactly on 100 to finish, and the rest play on for second and third. Two to six players; bots fill empty seats if you want them.",
   "entry": "index.html",
   "rules": "RULES.md",
   "shape": "free",

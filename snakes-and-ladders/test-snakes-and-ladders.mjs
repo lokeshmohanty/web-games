@@ -10,7 +10,7 @@
 import { readFileSync } from "node:fs";
 
 new Function(readFileSync(new URL("./snakes-and-ladders-rules.js", import.meta.url), "utf8"))();
-const { SIZE, TURNS, MIN_ROLLS, MAX_ROLLS, SECONDS_PER_TURN, MIN_SPAN, MAX_LADDER, MAX_SNAKE, rng, rowOf, colOf, step, unfair, measure, layout, game } = globalThis.snakesAndLaddersRules;
+const { SIZE, MIN_ROLLS, MAX_ROLLS, SECONDS_PER_TURN, MIN_SPAN, MAX_LADDER, MAX_SNAKE, rng, rowOf, colOf, step, unfair, placesOf, climb, measure, layout, game } = globalThis.snakesAndLaddersRules;
 
 let failures = 0;
 const check = (label, ok, detail = "") => {
@@ -24,49 +24,59 @@ check("1 is bottom left, 10 bottom right, 11 above 10, 100 top left", colOf(1) =
 
 console.log("\nfair boards, over many seeds");
 {
-	const SEEDS = 60;
-	for (const players of [2, 3, 4, 6]) {
-		const problems = [];
-		const turns = [];
-		const rolls = [];
-		const boards = new Set();
-		const feet = new Set();
-		const heads = new Set();
-		for (let seed = 1; seed <= SEEDS; seed++) {
-			const b = layout(seed * 104729, players);
-			const why = unfair(b);
-			if (why) problems.push(`${seed}: ${why}`);
-			boards.add(JSON.stringify([b.snakes, b.ladders]));
-			b.ladders.forEach(([a]) => feet.add(Math.floor(a / 10)));
-			b.snakes.forEach(([h]) => heads.add(Math.floor(h / 10)));
-			// Measured again on other dice, many more games than the deal uses.
-			const m = measure(b, players, rng(seed), 600);
-			turns.push(m.turns);
-			rolls.push(m.rolls);
-		}
-		const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
-		check(`${players} players: every board is fair (${SEEDS} seeds)`, !problems.length, problems.slice(0, 3).join("; "));
-		check(`${players} players: every seed deals a different board`, boards.size === SEEDS, `${boards.size}`);
-		check(`${players} players: ladders start, and snakes bite, all over the board`, feet.size >= 8 && heads.size >= 7, `feet in ${feet.size} decades, heads in ${heads.size}`);
-		const mt = mean(turns);
-		const mr = mean(rolls);
-		check(
-			`${players} players: one token climbs in ${Math.round(Math.min(...rolls))}-${Math.round(Math.max(...rolls))} rolls (average ${mr.toFixed(0)}; kept near ${MIN_ROLLS}-${MAX_ROLLS})`,
-			Math.min(...rolls) >= MIN_ROLLS - 6 && Math.max(...rolls) <= MAX_ROLLS + 16 && mr >= MIN_ROLLS && mr <= MAX_ROLLS + 4,
-		);
-		// The turns target is reached where one token's climb allows it (six
-		// players); smaller tables are as long as a board may be (MAX_ROLLS).
-		const [lo, hi] = TURNS;
-		check(
-			`${players} players: a game is ${Math.round(Math.min(...turns))}-${Math.round(Math.max(...turns))} turns (average ${mt.toFixed(0)}, about ${((mt * SECONDS_PER_TURN) / 60).toFixed(1)} min at ${SECONDS_PER_TURN} s a turn)`,
-			mt <= hi && (players >= 6 ? mt >= lo - 10 : mr >= MAX_ROLLS - 8),
-		);
+	const SEEDS = 150;
+	const problems = [];
+	const rolls = [];
+	const boards = new Set();
+	const feet = new Set();
+	const heads = new Set();
+	let snakes = 0;
+	let ladders = 0;
+	let tilted = 0;
+	for (let seed = 1; seed <= SEEDS; seed++) {
+		const b = layout(seed * 104729);
+		const why = unfair(b);
+		if (why) problems.push(`${seed}: ${why}`);
+		boards.add(JSON.stringify([b.snakes, b.ladders]));
+		b.ladders.forEach(([a]) => feet.add(Math.floor(a / 10)));
+		b.snakes.forEach(([h]) => heads.add(Math.floor(h / 10)));
+		snakes += b.snakes.length;
+		ladders += b.ladders.length;
+		if (Math.abs(b.snakes.length - b.ladders.length) > 3) tilted++;
+		// Measured again on other dice, many more climbs than the deal uses.
+		rolls.push(climb(b, rng(seed), 1500));
 	}
-	check("the same seed and table deal the same board", JSON.stringify(layout(77, 4)) === JSON.stringify(layout(77, 4)));
+	const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
+	rolls.sort((a, b) => a - b);
+	check(`every board is fair (${SEEDS} seeds)`, !problems.length, problems.slice(0, 3).join("; "));
+	check("every seed deals a different board", boards.size === SEEDS, `${boards.size}`);
+	check("ladders start, and snakes bite, all over the board", feet.size >= 8 && heads.size >= 7, `feet in ${feet.size} decades, heads in ${heads.size}`);
+	check(
+		`snakes and ladders in about equal numbers: ${(snakes / SEEDS).toFixed(1)} snakes to ${(ladders / SEEDS).toFixed(1)} ladders, never more than 3 apart (${tilted} boards were)`,
+		Math.abs(snakes - ladders) / SEEDS <= 1.5 && snakes / SEEDS >= 7 && snakes / SEEDS <= 9.5 && tilted === 0,
+	);
+	const p5 = rolls[Math.floor(SEEDS * 0.05)];
+	const p95 = rolls[Math.floor(SEEDS * 0.95)];
+	check(
+		`one token climbs in ${MIN_ROLLS}-${MAX_ROLLS} rolls on average, every table alike (average ${mean(rolls).toFixed(1)}; 90% of boards ${p5.toFixed(1)}-${p95.toFixed(1)}; all ${rolls[0].toFixed(1)}-${rolls.at(-1).toFixed(1)})`,
+		p5 >= MIN_ROLLS && p95 <= MAX_ROLLS && rolls[0] >= MIN_ROLLS - 3 && rolls.at(-1) <= MAX_ROLLS + 3,
+	);
+	check("the same seed deals the same board", JSON.stringify(layout(77)) === JSON.stringify(layout(77)));
 	const t0 = performance.now();
-	for (let seed = 0; seed < 10; seed++) layout(seed, 2);
-	const ms = (performance.now() - t0) / 10;
-	check(`dealing a board takes ${ms.toFixed(0)} ms (under 80, once a game)`, ms < 80);
+	for (let seed = 0; seed < 40; seed++) layout(seed * 13);
+	const ms = (performance.now() - t0) / 40;
+	check(`dealing a board takes ${ms.toFixed(1)} ms (under 8; once a match, in init)`, ms < 8);
+	// Bigger tables play for more places, so they run longer by themselves.
+	const minutes = {};
+	for (const players of [2, 3, 4, 6]) {
+		let t = 0;
+		for (let seed = 1; seed <= 40; seed++) t += measure(layout(seed * 7919), players, rng(seed), 300).turns;
+		minutes[players] = ((t / 40) * SECONDS_PER_TURN) / 60;
+	}
+	check(
+		`a game lasts longer the more play: ${Object.entries(minutes).map(([p, m]) => `${p} players ${m.toFixed(1)} min`).join(", ")} (at ${SECONDS_PER_TURN} s a turn)`,
+		minutes[2] < minutes[3] && minutes[3] < minutes[4] && minutes[4] < minutes[6] && minutes[4] >= 3.5,
+	);
 }
 
 console.log("\nunfair boards are refused");
@@ -136,35 +146,85 @@ console.log("\nthe game: turns, the die, the end");
 		return h.view({ seat: null }).pos[0] !== 99 || snap === null;
 	})());
 }
-{
-	// A game to the end, by hand: force positions through the snapshot.
+console.log("\nplaying on for places");
+/** A game of `ids` on a plain board, tokens set at `pos`, `first` to roll. */
+function rigged(ids, pos, first = ids[0]) {
 	const g = game();
-	g.init({ seats: seatsOf("pA", "pB", "pC"), opts: {}, seed: 3, match: 0, first: "pA" });
+	g.init({ seats: seatsOf(...ids), opts: {}, seed: 3, match: 0, first });
 	const snap = g.snapshot();
 	snap.board = { ladders: [[4, 25], [55, 76]], snakes: [[48, 30], [92, 70]] };
-	snap.pos = [99, 60, 30];
+	snap.pos = [...pos];
 	g.restore({ snapshot: snap });
-	let won = false;
-	for (let i = 0; i < 500 && !won; i++) {
+	return g;
+}
+/** Roll for whoever is on turn until `done(view)` or the game ends; returns the views seen. */
+function rollUntil(g, done = () => false, max = 3000) {
+	const seen = [];
+	for (let i = 0; i < max && g.turn().length; i++) {
 		const who = g.turn()[0];
-		g.apply({ action: { roll: true }, by: who });
+		const refused = g.apply({ action: { roll: true }, by: who });
+		if (refused) throw new Error(`${who}: ${refused}`);
 		const v = g.view({ seat: null });
-		if (v.last.seat === 0 && v.last.from === 99 && v.last.roll !== 1) check("on 99 anything but a 1 leaves the token there", v.pos[0] === 99, JSON.stringify(v.last));
-		won = v.winner !== null;
+		seen.push(v);
+		if (done(v)) break;
 	}
+	return seen;
+}
+check("places played for: 2 players 1, 3 players 2, 4-6 players 3", [2, 3, 4, 5, 6].map(placesOf).join() === "1,2,3,3,3");
+{
+	const g = rigged(["pA", "pB"], [99, 10]);
+	const seen = rollUntil(g);
 	const v = g.view({ seat: null });
-	const r = g.result();
-	check("someone reaches 100 exactly and wins", won && v.pos[v.winner] === SIZE && r.ranking[0][0] === v.seats[v.winner]);
-	check("the rest are placed by how far up they got", r.ranking.flat().length === 3 && r.ranking.slice(1).every((ids, k, all) => k === 0 || v.pos[v.seats.indexOf(all[k - 1][0])] > v.pos[v.seats.indexOf(ids[0])]), JSON.stringify({ r: r.ranking, pos: v.pos }));
-	check("the end card counts rolls, ladders and snakes", r.details.map((d) => d.label).join() === "Rolls,Ladders climbed,Snakes slid down");
-	check("nobody is on turn after, and a roll is refused", g.turn().length === 0 && g.apply({ action: { roll: true }, by: "pB" }) === "the game is over");
+	check("two players: the first home ends it (nothing left to play for)", v.over && v.home.length === 1 && g.result().ranking.length === 2 && g.result().ranking[0][0] === v.seats[v.home[0]]);
+	check("…on 99 anything but a 1 left the token there", seen.filter((x) => x.last.seat === 0 && x.last.from === 99 && x.last.roll !== 1).every((x) => x.pos[0] === 99 || x.last.to !== 99 + x.last.roll));
 }
 {
-	const g = game();
-	g.init({ seats: seatsOf("pA", "pB", "pC"), opts: {}, seed: 3, match: 0, first: "pA" });
+	const g = rigged(["pA", "pB", "pC"], [99, 60, 30]);
+	rollUntil(g, (v) => v.home.length === 1);
+	let v = g.view({ seat: null });
+	const first = v.home[0];
+	check("three players: someone reaches 100 and the game goes on", !v.over && g.result() === null && g.turn().length === 1, JSON.stringify({ home: v.home, over: v.over }));
+	check("…their place is first, the view says so", v.winner === null && v.last.place === 1 && v.pos[first] === SIZE);
+	const seen = rollUntil(g);
+	v = g.view({ seat: null });
+	check("…the token home rolls no more: never on turn again", seen.every((x) => x.last.seat !== first));
+	check("…a roll from it is refused", g.apply({ action: { roll: true }, by: v.seats[first] }) === "the game is over" || g.apply({ action: { roll: true }, by: v.seats[first] }) === "you are home");
+	const r = g.result();
+	check("…it ends when second place is decided: 1st and 2nd as they finished, then the last", v.over && v.home.length === 2 && JSON.stringify(r.ranking) === JSON.stringify([[v.seats[v.home[0]]], [v.seats[v.home[1]]], v.seats.filter((_, i) => !v.home.includes(i))]), JSON.stringify(r.ranking));
+	check("…the winner is the first home", v.winner === v.home[0]);
+	check("nobody is on turn after, and a roll is refused", g.turn().length === 0 && g.apply({ action: { roll: true }, by: "pB" }) === "the game is over");
+	check("the end card counts rolls, ladders and snakes", r.details.map((d) => d.label).join() === "Rolls,Ladders climbed,Snakes slid down");
+}
+{
+	const g = rigged(["pA", "pB", "pC", "pD", "pE"], [99, 98, 97, 20, 10]);
+	rollUntil(g);
+	const v = g.view({ seat: null });
+	const r = g.result();
+	check("five players: play goes on until third place is decided", v.over && v.home.length === 3 && r.ranking.slice(0, 3).every((ids, k) => ids.length === 1 && ids[0] === v.seats[v.home[k]]), JSON.stringify({ home: v.home, ranking: r.ranking }));
+	const rest = r.ranking.slice(3).flat();
+	check("…the rest placed by how far up they got", rest.length === 2 && v.pos[v.seats.indexOf(rest[0])] >= v.pos[v.seats.indexOf(rest[1])], JSON.stringify({ rest, pos: v.pos }));
+}
+{
+	// pB is furthest up, then leaves: placed last all the same.
+	const g = rigged(["pA", "pB", "pC", "pD"], [10, 95, 5, 0]);
+	check("a player who leaves comes off the rotation", g.leave({ seat: "pB" }) && g.turn()[0] === "pA");
+	rollUntil(g);
+	const r = g.result();
+	check("…and is placed last, however far up they were", JSON.stringify(r.ranking.at(-1)) === '["pB"]' && r.ranking.flat().length === 4, JSON.stringify(r.ranking));
+}
+{
+	const g = rigged(["pA", "pB", "pC"], [99, 50, 40]);
+	rollUntil(g, (v) => v.home.length === 1);
+	const v0 = g.view({ seat: null });
+	const firstId = v0.seats[v0.home[0]];
+	check("a player home who then leaves keeps their place", g.leave({ seat: firstId }) && !g.view({ seat: null }).over);
+	rollUntil(g);
+	check("…first, in the result", g.result().ranking[0][0] === firstId, JSON.stringify(g.result().ranking));
+}
+{
+	const g = rigged(["pA", "pB", "pC"], [0, 0, 0]);
 	check("a skip passes the turn without a roll", g.skip() && g.turn()[0] === "pB" && g.view({ seat: null }).rolls === 0);
-	check("a player leaving takes their token off the rotation", g.leave({ seat: "pB" }) && g.turn()[0] === "pC");
-	check("…and the last one left wins", g.leave({ seat: "pC" }) && g.view({ seat: null }).winner === 0 && g.result().ranking[0][0] === "pA");
+	check("one left racing after the rest left: decided, them first", g.leave({ seat: "pB" }) && g.leave({ seat: "pC" }) && g.view({ seat: null }).over && g.view({ seat: null }).winner === 0 && JSON.stringify(g.result().ranking) === '[["pA"],["pB","pC"]]', JSON.stringify(g.result()?.ranking));
 }
 
 console.log("\nwho rolls first, between rematches");

@@ -23,22 +23,26 @@
 //     always get past;
 //   - ladders start low and high (one foot at most 40, one at least 50), and
 //     snakes bite low and high (one head at most 60, one at least 80);
-//   - it plays about as long as wanted (below).
+//   - one token climbs it in about as many rolls as wanted (below).
 //
 // ## How long a game lasts
 //
-// A board's length is measured by playing it: SIMS quick games with this
-// many players on the board's own dice, counting turns until somebody wins.
-// The target is TURNS. A turn takes about SECONDS_PER_TURN: measured
-// 2026-11-22 at a table of one person and three bots, whose rolls wait for
-// the last move to play (snakes-and-ladders.js BOT_PACE_MS); people on their
-// own take longer. More players finish sooner, so a big table gets more
-// snakes and a small one more ladders — but one token's average climb is
-// kept between MIN_ROLLS and MAX_ROLLS whatever the table, because a board
-// long enough to give two players five minutes is nothing but snakes. So,
-// at that pace, six players take about 5 minutes, four about 4, two under 3
-// (test-snakes-and-ladders.mjs prints the numbers). Up to TRIES boards are
-// dealt and the one nearest the target is kept, so the deal always ends.
+// Play goes on for places (Lokesh, 2026-11-23: "play on for places"): when
+// someone reaches 100 the others keep rolling until second place is decided
+// too, and third at four players or more (`placesOf`). With two players the
+// first home decides everything, so that game ends there.
+//
+// So a board is balanced on one token's climb alone, the same at every
+// table: about ROLLS rolls from the start to 100 (measured by playing it,
+// SIMS climbs on the board's own dice), with snakes and ladders in roughly
+// equal numbers (8 and 7 to begin with; one more or fewer as the measure
+// asks, within SNAKES and LADDERS). Bigger tables run longer by themselves,
+// because more places are played for. At about SECONDS_PER_TURN a turn
+// (measured 2026-11-22: one person, three bots whose rolls wait for the last
+// move to play, snakes-and-ladders.js BOT_PACE_MS) test-snakes-and-ladders.mjs
+// prints each table's minutes. Up to TRIES boards are dealt and the one
+// nearest the target kept, so the deal always ends; it takes a few
+// milliseconds, once a match.
 
 // ## The moves
 //
@@ -47,8 +51,10 @@
 // tokens start off the board, so a first roll of 4 lands on 4. A foot of a
 // ladder climbs it, a snake's head slides down it. **100 needs the exact
 // roll**: a roll that would pass it leaves the token where it is (no bounce).
-// No extra turn for a 6. Tokens share squares; nobody is knocked off. The
-// first to reach 100 wins; the others are placed by how far up they got.
+// No extra turn for a 6. Tokens share squares; nobody is knocked off. A
+// token home on 100 rolls no more. The places go in the order tokens reach
+// 100; everyone still on the board is placed by how far up they got; a
+// player who left the game is placed last.
 
 (() => {
 	const SIZE = 100;
@@ -57,11 +63,13 @@
 	const MAX_SNAKE = 50;
 	const MAX_LEAN = 4;
 	const SECONDS_PER_TURN = 1.9;
-	const TURNS = [140, 220]; // the wanted turns in a game, all players together
-	const MIN_ROLLS = 28; // one token's average rolls from start to 100
-	const MAX_ROLLS = 66;
-	const SIMS = 120;
-	const TRIES = 40;
+	const ROLLS = [37, 43]; // the wanted average rolls for one token, start to 100
+	const MIN_ROLLS = 35; // what a board's true climb is held to (the measure is noisy)
+	const MAX_ROLLS = 45;
+	const SNAKES = [6, 10];
+	const LADDERS = [5, 9];
+	const SIMS = 240;
+	const TRIES = 30;
 
 	/** A seeded generator: its state is one integer, so it can be kept in a snapshot. */
 	function rng(state) {
@@ -112,26 +120,14 @@
 		return null;
 	}
 
-	/**
-	 * How long a board plays, on dice from `r`: `rolls`, one token's average
-	 * rolls to 100, and `turns`, the average turns of a game of `players`
-	 * (all players' turns, until the first reaches 100).
-	 */
-	function measure(layout, players, r, sims = SIMS) {
+	/** How many places a game of `players` plays for: two, three from four players, never all of them. */
+	const placesOf = (players) => Math.max(1, Math.min(players - 1, players >= 4 ? 3 : 2));
+
+	/** One token's average rolls from the start to 100 on `layout`, on dice from `r`. */
+	function climb(layout, r, sims = SIMS) {
 		const jumps = jumpsOf(layout);
-		let turns = 0;
 		let rolls = 0;
 		for (let g = 0; g < sims; g++) {
-			const pos = new Array(players).fill(0);
-			let t = 0;
-			for (let won = false; !won && t < 5000; ) {
-				for (let i = 0; i < players && !won; i++) {
-					t++;
-					pos[i] = step(pos[i], r.int(1, 6), jumps).to;
-					won = pos[i] === SIZE;
-				}
-			}
-			turns += t;
 			let at = 0;
 			let n = 0;
 			while (at < SIZE && n < 5000) {
@@ -140,7 +136,33 @@
 			}
 			rolls += n;
 		}
-		return { turns: turns / sims, rolls: rolls / sims };
+		return rolls / sims;
+	}
+
+	/**
+	 * How long a board plays, on dice from `r`: `rolls`, one token's average
+	 * climb, and `turns`, the average turns of a whole game of `players`
+	 * played for its places (placesOf).
+	 */
+	function measure(layout, players, r, sims = SIMS) {
+		const jumps = jumpsOf(layout);
+		const need = placesOf(players);
+		let turns = 0;
+		for (let g = 0; g < sims; g++) {
+			const pos = new Array(players).fill(0);
+			let home = 0;
+			let t = 0;
+			while (home < need && t < 20000) {
+				for (let i = 0; i < players && home < need; i++) {
+					if (pos[i] === SIZE) continue;
+					t++;
+					pos[i] = step(pos[i], r.int(1, 6), jumps).to;
+					if (pos[i] === SIZE) home++;
+				}
+			}
+			turns += t;
+		}
+		return { turns: turns / sims, rolls: climb(layout, r, sims) };
 	}
 
 	/** One candidate board: `snakes` and `ladders` of them, placed at random until they fit the rules. */
@@ -182,56 +204,60 @@
 	}
 
 	/**
-	 * A fair board for `players`, from `seed`: { snakes: [[head, tail]…],
-	 * ladders: [[foot, top]…], turns, rolls, minutes } — the last three as
-	 * measured. The same seed and table always deal the same board.
+	 * A fair board from `seed`: { snakes: [[head, tail]…], ladders:
+	 * [[foot, top]…], rolls } — rolls as measured. The same seed always deals
+	 * the same board. (The table's size no longer changes it: play goes on
+	 * for places instead.)
 	 */
-	function layout(seed, players) {
+	function layout(seed) {
 		const r = rng(Math.floor(Number(seed) || 0) ^ 0x51ab1e);
-		const n = Math.max(1, Math.min(8, players | 0));
 		let snakes = 8;
-		let ladders = 8;
+		let ladders = 7;
 		let best = null;
-		const [lo, hi] = TURNS;
+		const [lo, hi] = ROLLS;
 		const mid = (lo + hi) / 2;
 		for (let i = 0; i < TRIES; i++) {
 			const board = deal(r, snakes, ladders);
 			if (!board) {
-				snakes = 8;
-				ladders = 8;
+				[snakes, ladders] = [8, 7];
 				continue;
 			}
-			const m = measure(board, n, r);
-			// Distance from the target, with one token's climb kept in bounds.
-			const off = m.rolls < MIN_ROLLS ? MIN_ROLLS - m.rolls + 1000 : m.rolls > MAX_ROLLS ? m.rolls - MAX_ROLLS + 1000 : m.turns < lo ? lo - m.turns : m.turns > hi ? m.turns - hi : 0;
-			if (!best || off < best.off || (off === best.off && Math.abs(m.turns - mid) < Math.abs(best.turns - mid))) best = { ...board, ...m, off };
+			const rolls = climb(board, r);
+			const off = rolls < lo ? lo - rolls : rolls > hi ? rolls - hi : 0;
+			if (!best || off < best.off || (off === best.off && Math.abs(rolls - mid) < Math.abs(best.rolls - mid))) best = { ...board, rolls, off };
 			if (off === 0) break;
-			// Too short: one snake more or one ladder fewer; too long, the other way.
-			const short = m.rolls < MIN_ROLLS || (m.rolls <= MAX_ROLLS && m.turns < lo);
-			if (short) {
-				if (snakes < 11 && (ladders <= 5 || r.next() < 0.6)) snakes++;
-				else if (ladders > 5) ladders--;
-			} else if (ladders < 11 && (snakes <= 5 || r.next() < 0.6)) ladders++;
-			else if (snakes > 5) snakes--;
+			// Too short: a snake more or a ladder fewer, keeping them near level; too long, the other way.
+			// Never more than 3 apart: past that, the next deal keeps the counts.
+			if (rolls < lo) {
+				if (snakes < SNAKES[1] && snakes + 1 - ladders <= 3 && (snakes <= ladders + 1 || ladders <= LADDERS[0])) snakes++;
+				else if (ladders > LADDERS[0] && snakes - (ladders - 1) <= 3) ladders--;
+			} else if (ladders < LADDERS[1] && ladders + 1 - snakes <= 3 && (ladders <= snakes || snakes <= SNAKES[0])) ladders++;
+			else if (snakes > SNAKES[0] && ladders - (snakes - 1) <= 3) snakes--;
 		}
 		const { off, ...board } = best;
-		return { ...board, turns: Math.round(board.turns), rolls: Math.round(board.rolls), minutes: Math.round((board.turns * SECONDS_PER_TURN) / 6) / 10 };
+		return { ...board, rolls: Math.round(board.rolls) };
 	}
 
 	// ----------------------------------------------------------- the rules
 
 	/** The managed rules (docs/sdk-v2.md, Layer 2). */
 	function game() {
-		let s = null; // { match, seats, out, pos, turn, opener, board, dice, last, winner, rolls, snakes, ladders }
+		let s = null; // { match, seats, out, pos, home, need, over, turn, opener, board, dice, last, rolls, snakes, ladders }
 
 		const seatOf = (id) => s.seats.indexOf(id);
-		const playing = () => s.seats.map((_, i) => i).filter((i) => !s.out[i]);
+		/** Still rolling: seated, not left, not home. */
+		const rolling = (i) => !s.out[i] && s.pos[i] !== SIZE;
+		const rollers = () => s.seats.map((_, i) => i).filter(rolling);
 		const after = (i) => {
 			for (let k = 1; k <= s.seats.length; k++) {
 				const j = (i + k) % s.seats.length;
-				if (!s.out[j]) return j;
+				if (rolling(j)) return j;
 			}
 			return i;
+		};
+		/** Decided: the places played for are taken, or nobody is left to race. */
+		const settle = () => {
+			if (s.home.length >= s.need || rollers().length <= 1) s.over = true;
 		};
 
 		return {
@@ -247,18 +273,19 @@
 				}
 				const sd = Math.abs(Math.floor(Number(seed) || 0));
 				if (opener < 0) opener = sd % Math.max(1, ids.length);
-				const board = layout(sd, ids.length);
 				s = {
 					match: match + 1,
 					seats: ids,
 					out: ids.map(() => false),
 					pos: ids.map(() => 0),
+					home: [], // seats in the order they reached 100
+					need: placesOf(ids.length),
+					over: false,
 					turn: opener,
 					opener: ids[opener] ?? null,
-					board,
+					board: layout(sd),
 					dice: rng(sd ^ 0xd1ce).state(),
 					last: null,
-					winner: null,
 					rolls: 0,
 					snakes: 0,
 					ladders: 0,
@@ -266,9 +293,10 @@
 			},
 
 			apply({ action, by }) {
-				if (s.winner !== null) return "the game is over";
+				if (s.over) return "the game is over";
 				const me = seatOf(by);
 				if (me < 0 || s.out[me]) return "you are not playing";
+				if (s.pos[me] === SIZE) return "you are home";
 				if (me !== s.turn) return "not your turn";
 				if (action?.roll !== true) return "tap the die to roll";
 				const r = rng(s.dice);
@@ -280,9 +308,14 @@
 				s.rolls++;
 				if (move.via === "snake") s.snakes++;
 				if (move.via === "ladder") s.ladders++;
-				s.last = { seat: me, roll, from, land: move.land, to: move.to, via: move.via, n: s.rolls };
-				if (move.to === SIZE) s.winner = me;
-				else s.turn = after(me);
+				let place = null;
+				if (move.to === SIZE) {
+					s.home.push(me);
+					place = s.home.length;
+				}
+				s.last = { seat: me, roll, from, land: move.land, to: move.to, via: move.via, n: s.rolls, place };
+				settle();
+				if (!s.over) s.turn = after(me);
 			},
 
 			view: ({ seat }) => ({
@@ -290,24 +323,31 @@
 				seats: [...s.seats],
 				out: [...s.out],
 				pos: [...s.pos],
+				home: [...s.home],
+				need: s.need,
+				over: s.over,
 				turn: s.turn,
 				you: seat == null ? -1 : seatOf(seat),
 				board: { snakes: s.board.snakes.map((x) => [...x]), ladders: s.board.ladders.map((x) => [...x]) },
 				last: s.last && { ...s.last },
-				winner: s.winner,
+				// The first home, or (nobody home when the others all left) the one left racing.
+				winner: s.over ? (s.home[0] ?? rollers()[0] ?? null) : null,
 				rolls: s.rolls,
 			}),
 
-			turn: () => (s.winner === null && playing().length >= 2 ? [s.seats[s.turn]] : []),
+			turn: () => (!s.over ? [s.seats[s.turn]] : []),
 
 			// A bot has nothing to decide: it rolls.
-			bot: ({ seat }) => (seatOf(seat) === s.turn && s.winner === null ? { roll: true } : null),
+			bot: ({ seat }) => (seatOf(seat) === s.turn && !s.over ? { roll: true } : null),
 
+			/** The places in the order they were taken, then the rest by how far up they got, then whoever left. */
 			result() {
-				if (s.winner === null) return null;
-				const others = s.seats.map((id, i) => ({ id, i })).filter(({ i }) => i !== s.winner);
-				const levels = [...new Set(others.map(({ i }) => s.pos[i]))].sort((a, b) => b - a);
-				const ranking = [[s.seats[s.winner]], ...levels.map((p) => others.filter(({ i }) => s.pos[i] === p).map(({ id }) => id))];
+				if (!s.over) return null;
+				const ids = (list) => list.map((i) => s.seats[i]);
+				const rest = rollers();
+				const levels = [...new Set(rest.map((i) => s.pos[i]))].sort((a, b) => b - a);
+				const gone = s.seats.map((_, i) => i).filter((i) => s.out[i] && !s.home.includes(i));
+				const ranking = [...s.home.map((i) => [s.seats[i]]), ...levels.map((p) => ids(rest.filter((i) => s.pos[i] === p))), ...(gone.length ? [ids(gone)] : [])];
 				return {
 					kind: "ffa",
 					ranking,
@@ -321,19 +361,22 @@
 
 			/** The host chose SKIP TURN for someone away: their roll is passed. */
 			skip() {
-				if (s.winner !== null) return false;
+				if (s.over) return false;
 				s.turn = after(s.turn);
 				return true;
 			},
 
-			/** A player left for good: their token comes off. The last one playing wins. */
+			/**
+			 * A player left for good: their token comes off and they are placed
+			 * last (a place already taken on 100 is kept). If one player or none
+			 * is left racing, the game is decided.
+			 */
 			leave({ seat }) {
 				const i = seatOf(seat);
-				if (i < 0 || s.out[i] || s.winner !== null) return false;
+				if (i < 0 || s.out[i] || s.over) return false;
 				s.out[i] = true;
-				const left = playing();
-				if (left.length === 1) s.winner = left[0];
-				else if (s.turn === i) s.turn = after(i);
+				settle();
+				if (!s.over && s.turn === i) s.turn = after(i);
 				return true;
 			},
 
@@ -344,5 +387,5 @@
 		};
 	}
 
-	globalThis.snakesAndLaddersRules = { SIZE, MIN_SPAN, MAX_LADDER, MAX_SNAKE, MAX_LEAN, TURNS, MIN_ROLLS, MAX_ROLLS, SECONDS_PER_TURN, rng, rowOf, colOf, step, jumpsOf, unfair, measure, deal, layout, game };
+	globalThis.snakesAndLaddersRules = { SIZE, MIN_SPAN, MAX_LADDER, MAX_SNAKE, MAX_LEAN, ROLLS, MIN_ROLLS, MAX_ROLLS, SNAKES, LADDERS, SECONDS_PER_TURN, rng, rowOf, colOf, step, jumpsOf, unfair, placesOf, climb, measure, deal, layout, game };
 })();

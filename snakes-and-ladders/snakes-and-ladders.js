@@ -40,10 +40,10 @@ style.textContent = `
 		min-height: 1.4em; text-align: center; }
 	.sl-players { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 12px; font-size: 0.8rem; color: var(--muted); }
 	.sl-player { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
-	.sl-player i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; flex: none; box-shadow: 0 0 6px var(--glow); }
+	.sl-player svg { width: 16px; height: 16px; flex: none; }
 	.sl-player b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
 	.sl-player.on { color: var(--ink); }
-	.sl-player.on i { outline: 2px solid var(--accent); outline-offset: 2px; }
+	.sl-player.on svg { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 50%; }
 	.sl-player.out { opacity: 0.55; text-decoration: line-through; }
 	.sl-fill { flex: none; display: flex; align-items: center; justify-content: center; }
 	.sl-board { display: block; border: 2px solid var(--rule); border-radius: 10px; box-shadow: 0 0 24px var(--glow); }
@@ -122,7 +122,68 @@ const nameOf = (seat) => {
 	const id = view?.seats[seat];
 	return arcade.party?.members?.find((p) => p.id === id)?.name || `Player ${seat + 1}`;
 };
-const myTurn = () => !!view && view.winner === null && view.you >= 0 && view.turn === view.you && !view.out[view.you];
+const myTurn = () => !!view && !view.over && view.you >= 0 && view.turn === view.you && !view.out[view.you];
+const ordinal = (n) => `${n}${n === 1 ? "st" : n === 2 ? "nd" : n === 3 ? "rd" : "th"}`;
+
+// Each seat's token carries a mark as well as its colour (Five in a Row's
+// four, and two more), the same mark beside its name, so tokens read without
+// colour and apart from the snakes, which share the hues.
+const GLYPHS = ["ring", "cross", "triangle", "diamond", "square", "star"];
+const glyphOf = (seat) => GLYPHS[seat % GLYPHS.length];
+/** The mark's path, centred on (x, y), r its half size; `stroke` draws it as lines. */
+function glyphPath(g, glyph, x, y, r) {
+	g.beginPath();
+	if (glyph === "ring") g.arc(x, y, r * 0.8, 0, Math.PI * 2);
+	else if (glyph === "cross") {
+		g.moveTo(x - r * 0.7, y - r * 0.7);
+		g.lineTo(x + r * 0.7, y + r * 0.7);
+		g.moveTo(x + r * 0.7, y - r * 0.7);
+		g.lineTo(x - r * 0.7, y + r * 0.7);
+	} else if (glyph === "triangle") {
+		g.moveTo(x, y - r);
+		g.lineTo(x + r * 0.95, y + r * 0.7);
+		g.lineTo(x - r * 0.95, y + r * 0.7);
+		g.closePath();
+	} else if (glyph === "diamond") {
+		g.moveTo(x, y - r);
+		g.lineTo(x + r, y);
+		g.lineTo(x, y + r);
+		g.lineTo(x - r, y);
+		g.closePath();
+	} else if (glyph === "square") g.rect(x - r * 0.72, y - r * 0.72, r * 1.44, r * 1.44);
+	else
+		for (let i = 0; i < 10; i++) {
+			const a = (i / 10) * Math.PI * 2 - Math.PI / 2;
+			const k = i % 2 ? r * 0.45 : r;
+			g[i ? "lineTo" : "moveTo"](x + Math.cos(a) * k, y + Math.sin(a) * k);
+		}
+	if (glyph === "star") g.closePath();
+}
+/** A seat's token as a small SVG, for its chip. */
+function tokenIcon(seat) {
+	const ns = "http://www.w3.org/2000/svg";
+	const svg = document.createElementNS(ns, "svg");
+	svg.setAttribute("viewBox", "0 0 16 16");
+	svg.setAttribute("aria-hidden", "true");
+	svg.dataset.glyph = glyphOf(seat);
+	const disc = document.createElementNS(ns, "circle");
+	disc.setAttribute("cx", "8");
+	disc.setAttribute("cy", "8");
+	disc.setAttribute("r", "7.5");
+	disc.setAttribute("fill", colourOf(seat));
+	const mark = document.createElementNS(ns, "path");
+	const d = [];
+	const pen = { beginPath() {}, closePath: () => d.push("Z"), moveTo: (x, y) => d.push(`M${x.toFixed(2)} ${y.toFixed(2)}`), lineTo: (x, y) => d.push(`L${x.toFixed(2)} ${y.toFixed(2)}`), rect: (x, y, w, h) => d.push(`M${x} ${y}h${w}v${h}h${-w}Z`), arc: (x, y, r) => d.push(`M${x - r} ${y}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0`) };
+	glyphPath(pen, glyphOf(seat), 8, 8, 4.4);
+	mark.setAttribute("d", d.join(""));
+	mark.setAttribute("fill", "none");
+	mark.setAttribute("stroke", theme()?.tokens.bg ?? "black"); // theme-exempt: before the theme arrives
+	mark.setAttribute("stroke-width", "1.8");
+	mark.setAttribute("stroke-linejoin", "round");
+	mark.setAttribute("stroke-linecap", "round");
+	svg.append(disc, mark);
+	return svg;
+}
 const busy = () => !!anim || queue.length > 0;
 
 // ------------------------------------------------------------- the board
@@ -363,29 +424,50 @@ function frame(now) {
 			const k = `${Math.round(p[0])},${Math.round(p[1])}`;
 			groups.set(k, [...(groups.get(k) ?? []), seat]);
 		});
-		const r = cell * (view.seats.length > 4 ? 0.2 : 0.24);
+		const r = cell * (view.seats.length > 4 ? 0.22 : 0.26);
 		for (const seats of groups.values()) {
+			const n = seats.length;
+			// Two to four sharing stand in a small ring; five or six in a wider
+			// one, smaller, so none hides another.
+			const off = n > 4 ? cell * 0.3 : n > 1 ? cell * 0.21 : 0;
+			const size = n > 4 ? r * 0.74 : n > 1 ? r * 0.8 : r;
 			seats.forEach((seat, k) => {
 				const [x, y] = spots[seat];
-				const n = seats.length;
-				const off = n > 1 ? cell * 0.2 : 0;
 				const a = (k / n) * Math.PI * 2 - Math.PI / 2;
-				const px = x + Math.cos(a) * off;
-				const py = y + Math.sin(a) * off;
-				c2d.fillStyle = colourOf(seat);
-				c2d.shadowColor = colourOf(seat);
-				c2d.shadowBlur = glows() ? 12 * dpr : 0;
-				c2d.beginPath();
-				c2d.arc(px, py, n > 1 ? r * 0.8 : r, 0, Math.PI * 2);
-				c2d.fill();
-				c2d.shadowBlur = 0;
-				c2d.lineWidth = Math.max(1.5, cell * 0.05);
-				c2d.strokeStyle = seat === view.you ? t.tokens.ink : t.tokens.bg;
-				c2d.stroke();
+				drawToken(seat, x + Math.cos(a) * off, y + Math.sin(a) * off, size, t);
 			});
 		}
 	}
 	if (anim || tumbling) paint();
+}
+
+/**
+ * A token: a dark halo first, so it stands off a snake of its own hue, the
+ * disc in its colour, its mark cut in the background colour, and a rim (ink
+ * for this phone's own token).
+ */
+function drawToken(seat, x, y, r, t) {
+	const { tokens } = t;
+	c2d.fillStyle = tokens.bg;
+	c2d.beginPath();
+	c2d.arc(x, y, r + Math.max(2, r * 0.22), 0, Math.PI * 2);
+	c2d.fill();
+	c2d.fillStyle = colourOf(seat);
+	c2d.shadowColor = colourOf(seat);
+	c2d.shadowBlur = glows() ? 10 * dpr : 0;
+	c2d.beginPath();
+	c2d.arc(x, y, r, 0, Math.PI * 2);
+	c2d.fill();
+	c2d.shadowBlur = 0;
+	c2d.lineWidth = Math.max(1.5, cell * 0.045);
+	c2d.strokeStyle = seat === view.you ? tokens.ink : tokens.bg;
+	c2d.stroke();
+	c2d.lineWidth = Math.max(1.4, r * 0.2);
+	c2d.lineJoin = "round";
+	c2d.lineCap = "round";
+	c2d.strokeStyle = tokens.bg;
+	glyphPath(c2d, glyphOf(seat), x, y, r * 0.55);
+	c2d.stroke();
 }
 
 // --------------------------------------------------------------- the moves
@@ -401,7 +483,7 @@ function stepAnim(now) {
 	if (tumbling && !anim) showFace(1 + (Math.floor(now / 70) % 6));
 	if (!anim && queue.length) {
 		anim = { move: queue.shift(), t0: now, speed: queue.length ? 2 : 1 };
-		tumbling = false;
+		if (anim.move.seat === view?.you) stopTumbling();
 		die.classList.add("tumbling");
 	}
 	if (!anim) return;
@@ -442,7 +524,7 @@ function tell(move) {
 	if (move.via === "ladder") more = `Up the ladder from ${move.land} to ${move.to}!`;
 	else if (move.via === "snake") more = `Down the snake from ${move.land} to ${move.to}.`;
 	else if (move.via === "over") more = `${100 - move.from} needed exactly to finish: stays on ${move.from}.`;
-	else more = move.to === 100 ? "Home on 100!" : `On to ${move.to}.`;
+	else more = move.to === 100 ? `Home on 100: ${ordinal(move.place ?? 1)} place!` : `On to ${move.to}.`;
 	said.replaceChildren(document.createTextNode(main), el("small", "", more));
 }
 
@@ -457,28 +539,49 @@ function renderPlayers() {
 	if (!view) return;
 	playersEl.replaceChildren(
 		...view.seats.map((_, seat) => {
-			const chip = el("span", `sl-player${seat === view.turn && view.winner === null ? " on" : ""}${view.out[seat] ? " out" : ""}`);
-			const dot = el("i");
-			dot.style.background = colourOf(seat);
+			const chip = el("span", `sl-player${seat === view.turn && !view.over ? " on" : ""}${view.out[seat] ? " out" : ""}`);
 			const sq = shown[seat] ?? 0;
-			chip.append(dot, document.createTextNode(seat === view.you ? "You" : nameOf(seat)), el("b", "", sq ? String(sq) : "start"));
+			const place = view.home.indexOf(seat);
+			const where = place >= 0 && sq === 100 ? ordinal(place + 1) : sq ? String(sq) : "start";
+			chip.append(tokenIcon(seat), document.createTextNode(seat === view.you ? "You" : nameOf(seat)), el("b", "", where));
 			return chip;
 		}),
 	);
 	let text;
-	if (view.winner !== null) text = view.winner === view.you ? "YOU WIN!" : `${nameOf(view.winner)} WINS`;
+	const mine = view.home.indexOf(view.you);
+	if (view.over) text = view.winner === view.you ? "YOU WIN!" : view.winner != null ? `${nameOf(view.winner)} WINS` : "GAME OVER";
+	else if (mine >= 0) text = `You came ${ordinal(mine + 1)} — the rest play on`;
 	else if (myTurn()) text = "YOUR ROLL — tap the die";
 	else text = `${nameOf(view.turn)} to roll`;
 	if (statusEl.textContent !== text) statusEl.textContent = text;
 	canvas.setAttribute("aria-label", `Snakes and ladders board. ${view.seats.map((_, s) => `${s === view.you ? "You" : nameOf(s)} on ${shown[s] || "start"}`).join(", ")}.`);
 }
 
+// A roll lost on its way (a dropped link, a host changing hands) would leave
+// the die tumbling and disabled for good: after LOST_MS with no new roll it
+// stops, and can be tapped again.
+const LOST_MS = 4000;
+let lostTimer = 0;
+function stopTumbling() {
+	clearTimeout(lostTimer);
+	tumbling = false;
+}
 function roll() {
 	if (!myTurn() || tumbling) return;
 	tumbling = true;
 	die.classList.add("tumbling");
 	renderDie();
 	arcade.act({ roll: true });
+	const n = shownN;
+	clearTimeout(lostTimer);
+	lostTimer = setTimeout(() => {
+		if (!tumbling || shownN !== n) return;
+		stopTumbling();
+		die.classList.remove("tumbling");
+		showFace(face);
+		renderDie();
+		said.replaceChildren(document.createTextNode("The roll did not go through."), el("small", "", "Tap the die again."));
+	}, LOST_MS);
 	paint();
 }
 die.addEventListener("click", roll);
@@ -496,18 +599,21 @@ arcade.on("view", ({ state }) => {
 		// A new match, a first view or a jump back: draw it as it stands.
 		queue = [];
 		anim = null;
-		tumbling = false;
+		stopTumbling();
 		die.classList.remove("tumbling");
 		shown = [...state.pos];
 		shownN = state.last?.n ?? 0;
 		showFace(state.last?.roll ?? 1);
-		if (!before || before.match !== state.match) said.replaceChildren(document.createTextNode(state.last ? "" : "First to 100 exactly wins."), el("small", "", "Ladders climb, snakes slide."));
+		if (!before || before.match !== state.match) said.replaceChildren(document.createTextNode(state.last ? "" : "Land on 100 exactly to finish."), el("small", "", "Ladders climb, snakes slide; the rest play on for places."));
 	} else if (state.last.n > shownN) {
+		if (state.last.seat === state.you) clearTimeout(lostTimer); // ours arrived
 		if (state.last.n > shownN + 1 || reduced.matches) {
 			// More than one move behind (a reconnect), or no motion wanted: jump.
 			queue = [];
 			anim = null;
 			shown = [...state.pos];
+			stopTumbling();
+			die.classList.remove("tumbling");
 			showFace(state.last.roll);
 			tell(state.last);
 		} else queue.push({ ...state.last });
@@ -524,7 +630,7 @@ arcade.on("view", ({ state }) => {
 	paint();
 });
 arcade.on("rejected", (m) => {
-	tumbling = false;
+	stopTumbling();
 	die.classList.remove("tumbling");
 	renderDie();
 	said.replaceChildren(document.createTextNode(m.reason));
