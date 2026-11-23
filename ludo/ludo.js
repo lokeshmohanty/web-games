@@ -39,12 +39,20 @@ const reduced = matchMedia("(prefers-reduced-motion: reduce)");
 // of it; under reduced motion nothing is waited for. A bot's move may be a
 // promise (docs/sdk-v2.md "Managed state").
 const BOT_WAIT_MS = 3500;
-const rules = LR.game({ isHost: (id) => id === arcade.party?.host });
+// The host's last table ({ n, board, mode }), kept in the game's storage on
+// this device: a card's tap at the same table goes straight in on it.
+let lastTable = null;
+arcade.init.then((m) => {
+	const t = m?.storage?.table;
+	if (t && typeof t === "object") lastTable = t;
+});
+const rules = LR.game({ isHost: (id) => id === arcade.party?.host, last: () => lastTable });
 arcade.managed({
 	...rules,
 	bot(call) {
 		const action = rules.bot(call);
-		if (!action || reduced.matches || !busy()) return action;
+		// A hidden host tab draws nothing (no animation frames): never wait on it.
+		if (!action || reduced.matches || document.hidden || !busy()) return action;
 		const until = performance.now() + BOT_WAIT_MS;
 		return new Promise((done) => {
 			const check = () => (!busy() || performance.now() > until ? done(action) : setTimeout(check, 50));
@@ -76,8 +84,11 @@ style.textContent = `
 		border: 2px dashed var(--accent); background: transparent; cursor: pointer; pointer-events: auto;
 		display: flex; align-items: center; justify-content: center; box-shadow: 0 0 12px var(--accent-glow);
 		animation: lu-pulse 1.1s ease-in-out infinite; -webkit-tap-highlight-color: transparent; }
-	.lu-pick.away { background: color-mix(in oklch, var(--bg) 70%, transparent); border-style: solid; }
-	.lu-pick svg { width: 22px; height: 22px; pointer-events: none; }
+	/* A ring pushed off its token: see-through, so the board under it still reads. */
+	.lu-pick.away { border-style: solid; }
+	.lu-pick svg { width: 20px; height: 20px; pointer-events: none; }
+	.lu-pick b { position: absolute; top: -9px; right: -9px; min-width: 18px; height: 18px; padding: 0 3px; box-sizing: border-box;
+		border-radius: 9px; background: var(--ink); color: var(--bg); font: 700 12px/18px var(--font-mono); text-align: center; pointer-events: none; }
 	.lu-pick:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 	@keyframes lu-pulse { 50% { transform: scale(1.08); box-shadow: 0 0 20px var(--accent-glow), 0 0 0 2px var(--accent-glow); } }
 	.lu-bar { display: flex; align-items: center; justify-content: center; gap: 14px; width: 100%; max-width: 520px; min-height: 72px; }
@@ -155,6 +166,7 @@ const EXIT_MS = 240; // out of the yard onto the start
 const CAPTURE_MS = 340; // a token sent back flies to its yard
 const HOLD_MS = 450; // a roll with nothing to move (or a third 6) stays on show
 const LOST_MS = 4000; // a tap with no answer: the die (or the rings) come back
+const QUEUE_MAX = 8; // events waiting to be shown, past which the board jumps to the view
 const FACES = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
 const GLYPHS = ["ring", "cross", "triangle", "diamond", "square", "star"];
 const TEAM_NAMES = ["A", "B", "C"];
@@ -177,6 +189,7 @@ let layerKey = "";
 let raf = 0;
 let targets = []; // the rings on show: { x, y, tx, ty, move }
 let moves = 0; // events drawn, for the tests
+let drawn = []; // the tokens last drawn, for the tests: { seat, x, y, r, count, square, shared, marks }
 
 const theme = () => arcade.theme;
 const colourOf = (seat) => theme()?.players[seat % 8] ?? "gray"; // theme-exempt: before the theme arrives
@@ -524,7 +537,7 @@ function groups(list) {
 	for (const t of list) {
 		if (t.moving || t.p < 0) {
 			const [x, y] = px(t.at);
-			out.push({ x, y, r, seat: t.seat, count: 1, members: [t] });
+			out.push({ x, y, r, seat: t.seat, count: 1, members: [t], cx: x, cy: y, shared: false });
 		}
 	}
 	for (const here of bySquare.values()) {
@@ -532,16 +545,20 @@ function groups(list) {
 		const [cx, cy] = px(here[0].at);
 		const homeSq = here[0].p === view.home;
 		const n = seats.length;
-		const off = n > 1 ? cellPx * (n > 3 ? 0.3 : 0.24) : 0;
-		const size = n > 1 ? r * (n > 3 ? 0.66 : 0.76) : r;
+		// Several players on one square stand in a ring round it, each at
+		// least SHARED_R across and 4px apart, so every mark reads; their
+		// stacks count in notches pointing out of the ring (drawToken).
+		const size = n > 1 ? Math.max(SHARED_R, cellPx * 0.3) : r;
+		const off = n > 1 ? (size + 2) / Math.sin(Math.PI / n) : 0;
 		seats.forEach((seat, k) => {
 			const members = here.filter((t) => t.seat === seat);
 			const a = (k / n) * Math.PI * 2 - Math.PI / 2 + (homeSq ? 0 : Math.PI / 4);
-			out.push({ x: cx + Math.cos(a) * off, y: cy + Math.sin(a) * off, r: size, seat, count: members.length, members });
+			out.push({ x: cx + Math.cos(a) * off, y: cy + Math.sin(a) * off, r: size, seat, count: members.length, members, cx, cy, shared: n > 1 });
 		});
 	}
 	return out;
 }
+const SHARED_R = 7; // px: the smallest a token is drawn beside others
 
 function frame(now) {
 	raf = 0;
@@ -570,12 +587,16 @@ function frame(now) {
 		const gs = groups(list);
 		// The moving token last, over the others.
 		gs.sort((a, b) => Number(a.members.some((m) => m.moving)) - Number(b.members.some((m) => m.moving)));
-		for (const gr of gs) drawToken(gr.seat, gr.x, gr.y, gr.r, t, gr.count);
+		drawn = gs.map((gr) => ({ seat: gr.seat, x: gr.x, y: gr.y, r: gr.r, count: gr.count, square: `${gr.cx.toFixed(1)},${gr.cy.toFixed(1)}`, shared: gr.shared, marks: drawToken(gr, t) }));
 		// A ring pushed off its token: a line back to it.
 		for (const tg of targets) {
-			if (Math.hypot(tg.x - tg.tx, tg.y - tg.ty) < 6) continue;
+			const d = Math.hypot(tg.x - tg.tx, tg.y - tg.ty);
+			if (d < 6) continue;
+			// From the token's edge to the ring's: shown through the ring, which is see-through.
+			const [ux, uy] = [(tg.x - tg.tx) / d, (tg.y - tg.ty) / d];
+			const from = Math.min(d, cellPx * 0.36);
 			c2d.beginPath();
-			c2d.moveTo(tg.tx, tg.ty);
+			c2d.moveTo(tg.tx + ux * from, tg.ty + uy * from);
 			c2d.lineTo(tg.x, tg.y);
 			c2d.lineWidth = 2;
 			c2d.strokeStyle = t.tokens.accent;
@@ -588,11 +609,14 @@ function frame(now) {
 /**
  * A token: a dark halo, so it stands off any square; the disc in its colour;
  * its mark cut in the background colour; a rim (ink for this phone's own).
- * A stack shows the discs below it, offset, and its count.
+ * A stack alone on its square shows the discs below it, offset, and its
+ * count on a plate; a stack beside other players' shows its count as notches
+ * on its rim, pointing away from the others, so nothing covers a neighbour.
+ * Returns where the notches are drawn (for the tests).
  */
-function drawToken(seat, x, y, r, t, count = 1) {
+function drawToken({ seat, x, y, r, count = 1, cx = x, cy = y, shared = false }, t) {
 	const { tokens } = t;
-	const layers = Math.min(count, 3);
+	const layers = shared ? 1 : Math.min(count, 3);
 	for (let k = layers - 1; k >= 0; k--) {
 		const [ox, oy] = [x + k * r * 0.22, y - k * r * 0.22];
 		c2d.fillStyle = tokens.bg;
@@ -616,7 +640,28 @@ function drawToken(seat, x, y, r, t, count = 1) {
 	c2d.strokeStyle = tokens.bg;
 	glyphPath(c2d, glyphOf(seat), x, y, r * 0.56);
 	c2d.stroke();
-	if (count > 1) {
+	const marks = [];
+	if (count > 1 && shared) {
+		// One notch per token, fanned round the outward direction.
+		const out = Math.atan2(y - cy, x - cx);
+		for (let k = 0; k < count; k++) {
+			const a = out + (k - (count - 1) / 2) * 0.45;
+			const [ux, uy] = [Math.cos(a), Math.sin(a)];
+			const [x0, y0, x1, y1] = [x + ux * (r + 1.5), y + uy * (r + 1.5), x + ux * (r + 5.5), y + uy * (r + 5.5)];
+			for (const [w, colour] of [
+				[4.5, tokens.bg],
+				[2.2, tokens.ink],
+			]) {
+				c2d.lineWidth = w;
+				c2d.strokeStyle = colour;
+				c2d.beginPath();
+				c2d.moveTo(x0, y0);
+				c2d.lineTo(x1, y1);
+				c2d.stroke();
+			}
+			marks.push([x1, y1]);
+		}
+	} else if (count > 1) {
 		// The count, at 12px: a plate up and to the right.
 		const bx = x + r * 0.95;
 		const by = y - r * 0.95;
@@ -629,7 +674,9 @@ function drawToken(seat, x, y, r, t, count = 1) {
 		c2d.textBaseline = "middle";
 		c2d.fillStyle = tokens.bg;
 		c2d.fillText(String(count), bx, by + 0.5);
+		marks.push([bx, by]);
 	}
+	return marks;
 }
 
 // --------------------------------------------------------------- the moves
@@ -824,11 +871,18 @@ function placeTargets() {
 		btn.dataset.owner = String(tg.move.owner);
 		btn.dataset.token = String(tg.move.token);
 		const whose = tg.move.owner === view.you ? "your" : `${nameOf(tg.move.owner)}'s`;
+		const many = tg.move.from >= 0 && view.tokens[tg.move.owner].filter((p) => p === tg.move.from).length > 1 ? " (one of a stack)" : "";
 		const what = tg.move.from < 0 ? `Bring ${whose} token out of the yard` : tg.move.to === view.home ? `Move ${whose} token home` : `Move ${whose} token ${view.roll}, to square ${tg.move.to + 1}`;
-		btn.setAttribute("aria-label", `${what} (${k + 1})`);
-		if (Math.hypot(tg.x - tg.tx, tg.y - tg.ty) >= 6) {
-			btn.classList.add("away");
-			btn.append(tokenIcon(tg.move.owner));
+		btn.setAttribute("aria-label", `${what}${many} (${k + 1})`);
+		const off = Math.hypot(tg.x - tg.tx, tg.y - tg.ty);
+		if (off >= 6) btn.classList.add("away");
+		// Far enough that the ring no longer sits over its token: the token's mark in it.
+		if (off >= 22) btn.append(tokenIcon(tg.move.owner));
+		// A stack: how many tokens stand there (any one of them moves).
+		const stack = tg.move.from >= 0 ? view.tokens[tg.move.owner].filter((p) => p === tg.move.from).length : 1;
+		if (stack > 1) {
+			btn.append(el("b", null, String(stack)));
+			btn.dataset.stack = String(stack);
 		}
 		btn.addEventListener("click", () => pick(tg.move));
 		picks.append(btn);
@@ -978,6 +1032,14 @@ function render() {
 arcade.on("view", ({ state }) => {
 	const before = view;
 	view = state;
+	// The table played, remembered on the host's device for its next card tap.
+	if (state.phase === "play" && arcade.isHost()) {
+		const table = { n: state.seats.length, board: state.board, mode: state.mode };
+		if (JSON.stringify(table) !== JSON.stringify(lastTable)) {
+			lastTable = table;
+			arcade.send("store.set", { key: "table", value: table });
+		}
+	}
 	const reshaped = !before || before.board !== state.board || before.arms.join() !== state.arms.join() || before.you !== state.you;
 	if (!before || before.match !== state.match || state.phase !== "play" || before.phase !== "play" || !state.last || state.last.n < shownN) {
 		// A new match, a first view, the setup or a jump back: draw it as it stands.
@@ -996,8 +1058,9 @@ arcade.on("view", ({ state }) => {
 		}
 		// Every event since the last one drawn, in order (a bot's turn is several).
 		const fresh = (state.log ?? [state.last]).filter((e) => e.n > shownN);
-		if (fresh[0]?.n !== shownN + 1 || reduced.matches) {
-			// Further behind than the log reaches (a reconnect), or no motion wanted: jump.
+		if (fresh[0]?.n !== shownN + 1 || reduced.matches || document.hidden || queue.length + fresh.length > QUEUE_MAX) {
+			// Further behind than the log reaches (a reconnect), no motion
+			// wanted, a hidden tab (it draws nothing), or far behind: jump.
 			queue = [];
 			anim = null;
 			shown = clone(state.tokens);
@@ -1026,6 +1089,22 @@ arcade.on("view", ({ state }) => {
 		arcade.idle?.();
 	}
 	if (reshaped) layout();
+	render();
+	paint();
+});
+// Back from hidden with moves still waiting (a tab switched away mid-move): show where things are.
+document.addEventListener("visibilitychange", () => {
+	if (document.hidden || !view || !busy()) return;
+	queue = [];
+	anim = null;
+	shown = clone(view.tokens);
+	stopTumbling();
+	die.classList.remove("tumbling");
+	if (view.last) {
+		showFace(view.last.roll);
+		tell(view.last);
+	}
+	arcade.idle?.();
 	render();
 	paint();
 });
@@ -1068,6 +1147,7 @@ arcade.debug = () => {
 		myTurn: myTurn(),
 		cell: cellPx,
 		rot,
+		drawn: clone(drawn),
 		targets: targets.map((t) => ({ x: r.left + t.x, y: r.top + t.y, owner: t.move.owner, token: t.move.token, away: Math.hypot(t.x - t.tx, t.y - t.ty) >= 6 })),
 		setupOpen: !setup.hidden,
 	};

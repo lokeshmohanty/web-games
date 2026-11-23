@@ -191,9 +191,11 @@
 	/**
 	 * The managed rules (docs/sdk-v2.md, Layer 2). `isHost(id)`: who may set
 	 * the table up (the page passes the party's host; tests leave it open).
-	 * `die()`: tests' own rolls, in place of the seeded die.
+	 * `die()`: tests' own rolls, in place of the seeded die. `last()`: the
+	 * host's device's last table, { n, board, mode } or null (the page keeps
+	 * it in the game's storage).
 	 */
-	function game({ isHost = () => true, die = null } = {}) {
+	function game({ isHost = () => true, die = null, last = () => null } = {}) {
 		let s = null;
 		const G = () => geometry(s.board);
 		const count = () => s.seats.length;
@@ -265,8 +267,11 @@
 				return;
 			}
 			const left = s.seats.map((_, i) => i).filter(racing);
-			// Decided: the places played for are taken, or nobody is left to race.
-			if (s.done.length >= s.need || left.length <= 1) s.over = true;
+			// Decided: the places played for are taken, or nobody is left to race,
+			// or only bots are (Lokesh, 2026-11-23: "end when all people are
+			// placed"; a table of bots only plays on for its places).
+			const people = s.bots.some((b) => !b);
+			if (s.done.length >= s.need || left.length <= 1 || (people && !left.some((i) => !s.bots[i]))) s.over = true;
 		}
 		/** Pass the turn on, clockwise round the board, to the next seat with anything to move. */
 		function next() {
@@ -357,9 +362,24 @@
 				}
 				const sd = Math.abs(Math.floor(Number(seed) || 0));
 				if (opener < 0) opener = sd % Math.max(1, ids.length);
-				// The last match's board and mode, when they still fit the table.
-				const board = boardsFor(ids.length).includes(s?.board) ? s.board : ids.length <= 4 ? 4 : 6;
-				const mode = s && modesFor(board, ids.length).includes(s.mode) ? s.mode : "ffa";
+				// The setup only the first time (Lokesh, 2026-11-23): PLAY AGAIN
+				// goes straight in with the last board and mode, and so does one
+				// person with bots at the table they last played (a card's tap
+				// reuses it), or at a first one (the default). A different table
+				// (CHANGE PLAYERS), friends at a party's first game, or a rematch
+				// whose seats no longer fit the teams: the setup, with what
+				// still fits picked.
+				const n = ids.length;
+				const prev = s;
+				const people = seats.filter((p) => !p.bot).length;
+				let saved = null;
+				try {
+					saved = prev ? { n: prev.seats.length, board: prev.board, mode: prev.mode } : last();
+				} catch {}
+				const fits = (b, m) => boardsFor(n).includes(b) && modesFor(b, n).includes(m);
+				const board = boardsFor(n).includes(saved?.board) ? saved.board : n <= 4 ? 4 : 6;
+				const mode = modesFor(board, n).includes(saved?.mode) ? saved.mode : "ffa";
+				const straight = prev ? (match ?? 0) > 0 && fits(prev.board, prev.mode) : people === 1 && n > 1 && (!saved || (saved.n === n && fits(saved.board, saved.mode)));
 				s = {
 					match: (match ?? 0) + 1,
 					phase: "setup", // "setup" | "play"
@@ -389,6 +409,9 @@
 					winners: null, // teams: the winning team
 				};
 				s.arms = defaultArms();
+				// The same seats, board and mode: the same partners (MIX TEAMS kept).
+				if (prev && prev.board === board && prev.mode === mode && prev.seats.join() === ids.join() && prev.arms?.length === n) s.arms = [...prev.arms];
+				if (straight) startPlay();
 			},
 
 			apply({ action, by }) {
@@ -539,9 +562,12 @@
 				if (i < 0 || s.out[i] || s.over) return false;
 				if (s.phase === "setup") {
 					for (const k of ["seats", "tokens", "out", "captures", "bots"]) s[k].splice(i, 1);
-					if (s.opener >= count()) s.opener = 0;
-					s.turn = s.opener;
-					s.openerId = s.seats[s.opener] ?? null;
+					// Who opens stays who it was; if they left, whoever took their place.
+					let o = s.seats.indexOf(s.openerId);
+					if (o < 0) o = i % Math.max(1, count());
+					s.opener = o;
+					s.turn = o;
+					s.openerId = s.seats[o] ?? null;
 					if (!boardsFor(count()).includes(s.board)) s.board = 6;
 					if (!modesFor(s.board, count()).includes(s.mode)) s.mode = "ffa";
 					s.arms = defaultArms();

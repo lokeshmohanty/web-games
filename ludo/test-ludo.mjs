@@ -291,6 +291,75 @@ console.log("\na player who leaves");
 	check("before the start, a leaver just leaves the table (four: both boards again)", s.view({ seat: null }).seats.length === 4 && s.view({ seat: null }).boards.join() === "4,6");
 }
 
+console.log("\na leave before the start keeps who opens");
+{
+	const g = game();
+	g.init({ seats: seatsOf("a", "b", "c", "d"), opts: {}, seed: 1, match: 0, first: "c" });
+	g.leave({ seat: "a" });
+	g.apply({ action: { start: true }, by: "b" });
+	check("c was to open; a leaves before START: c still opens", g.turn()[0] === "c", `${g.turn()[0]}`);
+	const h = game();
+	h.init({ seats: seatsOf("a", "b", "c", "d"), opts: {}, seed: 1, match: 0, first: "c" });
+	h.leave({ seat: "c" });
+	h.apply({ action: { start: true }, by: "a" });
+	check("the opener leaves: whoever took their place (the seat after) opens", h.turn()[0] === "d", `${h.turn()[0]}`);
+}
+
+console.log("\nfree-for-all ends once only bots are racing");
+{
+	const { g, v } = table(["pA", "bot_1", "bot_2", "bot_3"], { tokens: [[55, 56, 56, 56], [10, -1, -1, -1], [30, 4, -1, -1], [-1, -1, -1, -1]], rolls: [1] });
+	roll(g, "pA");
+	const r = g.result();
+	check("the one person home first: the game ends at once (it would play on for 2nd and 3rd)", v().over && r && r.ranking[0].join() === "pA", JSON.stringify({ over: v().over, done: v().done }));
+	check("…the bots placed by how far round they got", r && r.ranking.slice(1).map((x) => x.join()).join("|") === "bot_2|bot_1|bot_3", JSON.stringify(r?.ranking));
+	const t = table(["pA", "pB", "bot_1"], { tokens: [[55, 56, 56, 56], [10, -1, -1, -1], [20, -1, -1, -1]], rolls: [1] });
+	roll(t.g, "pA");
+	check("another person still racing: play goes on for places", !t.v().over && t.v().done.join() === "0");
+	const u = table(["pA", "bot_1", "bot_2"], { tokens: [[10, -1, -1, -1], [55, 56, 56, 56], [20, -1, -1, -1]], rolls: [3, 1] });
+	roll(u.g, "pA");
+	roll(u.g, "bot_1");
+	check("a bot home first while the person races: play goes on", !u.v().over && u.v().done.join() === "1");
+	const w = table(["pA", "bot_1", "bot_2"], { tokens: [[10, -1, -1, -1], [20, -1, -1, -1], [30, -1, -1, -1]] });
+	w.g.leave({ seat: "pA" });
+	check("the only person leaves: only bots racing, so it ends", w.v().over);
+	const allBots = botGame(["bot_a", "bot_b", "bot_c"], { board: 4, seed: 5 });
+	check("a table of bots only still plays for its places", allBots.over && allBots.view.done.length === 2);
+}
+
+console.log("\nsetup only the first time");
+{
+	// A fresh mount: the platform's init with the device's last table (`last`).
+	const fresh = (ids, last, match = 0) => {
+		const g = game({ last: () => last });
+		g.init({ seats: seatsOf(...ids), opts: {}, seed: 3, match, first: ids[0] });
+		return g;
+	};
+	let g = fresh(["pA", "bot_1", "bot_2", "bot_3"], null);
+	check("one person and bots, nothing remembered (a card's tap): straight into play, 4-player board, free-for-all", g.view({ seat: null }).phase === "play" && g.view({ seat: null }).board === 4 && g.view({ seat: null }).mode === "ffa" && g.turn()[0] === "pA");
+	g = fresh(["pA", "bot_1", "bot_2", "bot_3"], { n: 4, board: 6, mode: "ffa" });
+	check("…the same table as last time: straight in on the last board", g.view({ seat: null }).phase === "play" && g.view({ seat: null }).board === 6);
+	g = fresh(["pA", "bot_1", "bot_2", "bot_3"], { n: 4, board: 4, mode: "pairs" });
+	check("…teams too: 2 v 2 again, partners opposite", g.view({ seat: null }).phase === "play" && g.view({ seat: null }).mode === "pairs" && g.view({ seat: null }).teams.join() === "0,1,0,1");
+	g = fresh(["pA", "bot_1", "bot_2", "bot_3", "bot_4", "bot_5"], { n: 4, board: 4, mode: "pairs" });
+	let v = g.view({ seat: null });
+	check("a different table (CHANGE PLAYERS): the setup, with what still fits picked (six: the 6-player board, teams of 2 still)", v.phase === "setup" && v.board === 6 && v.mode === "pairs", JSON.stringify({ phase: v.phase, board: v.board, mode: v.mode }));
+	g = fresh(["pA", "pB", "bot_1"], { n: 3, board: 6, mode: "ffa" });
+	v = g.view({ seat: null });
+	check("friends at the table (a party's first game): the setup, the last board picked", v.phase === "setup" && v.board === 6);
+	// PLAY AGAIN: straight in, the same board, mode and partners.
+	g = fresh(["pA", "pB", "pC", "pD"], null);
+	g.apply({ action: { mode: "pairs" }, by: "pA" });
+	g.apply({ action: { mix: true }, by: "pA" });
+	const teams = g.view({ seat: null }).teams.join();
+	g.apply({ action: { start: true }, by: "pA" });
+	g.init({ seats: seatsOf("pA", "pB", "pC", "pD"), opts: {}, seed: 4, match: 1, first: "pB" });
+	v = g.view({ seat: null });
+	check("PLAY AGAIN: straight into play, 2 v 2 with the same partners, the next opener", v.phase === "play" && v.mode === "pairs" && v.teams.join() === teams && g.turn()[0] === "pB", JSON.stringify({ phase: v.phase, teams: v.teams, was: teams }));
+	g.init({ seats: seatsOf("pA", "pB", "pC"), opts: {}, seed: 5, match: 2, first: "pC" });
+	v = g.view({ seat: null });
+	check("PLAY AGAIN with a seat gone: teams no longer fit, so the setup", v.phase === "setup" && v.mode === "ffa");
+}
+
 console.log("\nskipping a turn");
 {
 	const { g } = table(["pA", "pB", "bot_1"]);
@@ -329,7 +398,7 @@ console.log("\nwho rolls first goes round the table");
 	rematch.init({ seats: seatsOf("a", "b", "c", "d"), opts: {}, seed: 1, match: 0 });
 	rematch.apply({ action: { mode: "pairs" }, by: "a" });
 	rematch.init({ seats: seatsOf("a", "b", "c", "d"), opts: {}, seed: 2, match: 1 });
-	check("PLAY AGAIN keeps the board and mode picked last", rematch.view({ seat: null }).mode === "pairs" && rematch.view({ seat: null }).phase === "setup");
+	check("PLAY AGAIN keeps the board and mode picked last", rematch.view({ seat: null }).mode === "pairs" && rematch.view({ seat: null }).phase === "play");
 }
 
 // ------------------------------------------------------------------- bots
