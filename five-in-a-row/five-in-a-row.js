@@ -101,7 +101,8 @@ let cursor = null; // [x, y]: the keyboard's cell
 let pop = null; // { x, y, t0 } while a new mark grows
 let glide = null; // { from, to, t0, ms } while the camera follows a move
 // The camera is the player's while they move it: no following a new mark
-// while a finger is down, nor for HANDS_OFF_MS after a pan or a zoom.
+// while a finger is down, nor for HANDS_OFF_MS after a pan or a zoom. A win
+// is framed all the same: the game is over.
 const HANDS_OFF_MS = 2000;
 let handled = -Infinity; // when the player last panned or zoomed
 const handsOn = () => pointers.size > 0 || performance.now() - handled < HANDS_OFF_MS;
@@ -588,7 +589,8 @@ canvas.addEventListener("blur", () => {
 
 // -------------------------------------------------------------- the views
 
-arcade.on("view", ({ state }) => {
+/** A view from the host (named, so a test can hand it one). */
+function onView({ state }) {
 	const before = view;
 	view = state;
 	marks = R.boardOf(state.marks);
@@ -617,12 +619,18 @@ arcade.on("view", ({ state }) => {
 		const ys = state.line.map((c) => c[1]);
 		const mid = { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 };
 		const need = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) + 2;
-		if (!handsOn()) moveTo({ ...mid, z: Math.min(cam.z, Math.max(MIN_PX, Math.min(size.w, size.h - 56) / need)) });
+		// Always: the game is over, so the camera is no longer the player's
+		// (holding off for a recent pan left a win off screen for good). With
+		// a finger still down it jumps rather than glides, so the drag goes on
+		// from the framed board.
+		moveTo({ ...mid, z: Math.min(cam.z, Math.max(MIN_PX, Math.min(size.w, size.h - 56) / need)) }, !pointers.size);
 	}
 	if (!pop) arcade.idle?.();
 	renderHud();
 	paint();
-});
+}
+arcade.on("view", onView);
+
 arcade.on("rejected", (m) => say(m.reason));
 arcade.on("roster", renderHud);
 arcade.on("theme.set", () => {

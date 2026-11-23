@@ -431,27 +431,35 @@ function frame(now) {
 			// one, smaller, so none hides another.
 			const off = n > 4 ? cell * 0.3 : n > 1 ? cell * 0.21 : 0;
 			const size = n > 4 ? r * 0.74 : n > 1 ? r * 0.8 : r;
-			seats.forEach((seat, k) => {
+			// Every halo first, then every token, so no halo covers a neighbour;
+			// each kept inside the board (square 1's bottom token sat on the edge).
+			const edge = size + Math.max(2, size * 0.22) + 1;
+			const at = seats.map((seat, k) => {
 				const [x, y] = spots[seat];
 				const a = (k / n) * Math.PI * 2 - Math.PI / 2;
-				drawToken(seat, x + Math.cos(a) * off, y + Math.sin(a) * off, size, t);
+				const keep = (v) => Math.min(cell * 10 - edge, Math.max(edge, v));
+				return [seat, keep(x + Math.cos(a) * off), keep(y + Math.sin(a) * off)];
 			});
+			for (const [, x, y] of at) halo(x, y, size, t);
+			for (const [seat, x, y] of at) drawToken(seat, x, y, size, t);
 		}
 	}
 	if (anim || tumbling) paint();
 }
 
 /**
- * A token: a dark halo first, so it stands off a snake of its own hue, the
- * disc in its colour, its mark cut in the background colour, and a rim (ink
- * for this phone's own token).
+ * A token (after its `halo` of the background colour, so it stands off a
+ * snake of its own hue): the disc in its colour, its mark cut in the
+ * background colour, and a rim (ink for this phone's own token).
  */
-function drawToken(seat, x, y, r, t) {
-	const { tokens } = t;
-	c2d.fillStyle = tokens.bg;
+function halo(x, y, r, t) {
+	c2d.fillStyle = t.tokens.bg;
 	c2d.beginPath();
 	c2d.arc(x, y, r + Math.max(2, r * 0.22), 0, Math.PI * 2);
 	c2d.fill();
+}
+function drawToken(seat, x, y, r, t) {
+	const { tokens } = t;
 	c2d.fillStyle = colourOf(seat);
 	c2d.shadowColor = colourOf(seat);
 	c2d.shadowBlur = glows() ? 10 * dpr : 0;
