@@ -4,8 +4,9 @@ Bubbles rise up one shared field. Tap them to pop them before anyone else does. 
 
 ## How to play
 - Before each round the host picks **FREE-FOR-ALL** or **TEAMS** and taps **START**. The game asks every round; nothing is picked for them. When only one team has players, FREE-FOR-ALL is the only choice.
-- A 3, 2, 1 countdown, then the round runs for 60 seconds.
+- A 3, 2, 1 countdown, then the round runs for 60 seconds. At the bell the field freezes for a moment, so a pop you made just in time still counts.
 - Bubbles rise from the bottom and wobble as they go. Tap one to pop it.
+- Your phone decides your tap the moment you make it: the bubble pops, and your points and streak show at once, even on a slow connection. Everyone else sees it go a moment later.
 - The round speeds up as it goes. In the last 10 seconds (**FRENZY**) bubbles come even faster.
 - If the host leaves the app, the round pauses for everyone until they come back.
 
@@ -18,7 +19,7 @@ Bubbles rise up one shared field. Tap them to pop them before anyone else does. 
   - tap empty field (a miss),
   - pop a bomb,
   - go 1.5 seconds without popping anything.
-- If someone else popped a bubble just before you, your tap does not count, but it does not break your streak either.
+- If you and someone else pop the same bubble at almost the same moment, you both score it.
 
 ### Scoring example
 You pop four small bubbles in a row: 30 + 30 + 30 + 30 = 120. Your streak is now 4, so the next pop is doubled: a medium bubble gives 20 × 2 = 40, and a golden one after it 50 × 2 = 100. You have 260. Then you tap a bomb: −25, so 235, your streak is back to nothing and you are stunned for a moment. Your next small bubble is worth 30 again.

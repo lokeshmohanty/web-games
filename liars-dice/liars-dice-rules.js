@@ -127,8 +127,23 @@
 		return { type: "bid", ...(options[0] ?? { count: 1, face: 2 }) };
 	}
 
+	/**
+	 * Who opens a new game's first round: the seat after the one that opened
+	 * the last game, or a random seat for the party's first (the arcade's
+	 * rule for every turn-based game, docs/sdk-v2.md "Who starts" — which a
+	 * protocol game follows itself). `prev` is { id, at }, the last opener and
+	 * its place among that game's seats, or null; `ids` the seats now. A last
+	 * opener who has left is followed by whoever took their place.
+	 */
+	function nextOpener(prev, ids, rng = Math.random) {
+		if (!ids.length) return null;
+		const i = prev ? ids.indexOf(prev.id) : -1;
+		const at = !prev ? Math.floor(rng() * ids.length) : i >= 0 ? (i + 1) % ids.length : (Number.isInteger(prev.at) ? prev.at : 0) % ids.length;
+		return { id: ids[at], at };
+	}
+
 	globalThis.liarsDiceRules = {
 		DICE, FACES, countFace, countAll, validBid, bidBeats, raisesAfter,
-		resolveCall, rollDice, expectedCount, botAction,
+		resolveCall, rollDice, expectedCount, botAction, nextOpener,
 	};
 })();
