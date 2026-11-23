@@ -4,6 +4,7 @@ Race your four tokens from your yard, once round the board and up your home colu
 
 ## Setting up
 - The setup shows only the first time: for a party's first game with friends, and when the players change (CHANGE PLAYERS to a different table). **PLAY AGAIN** goes straight on with the same board, mode and partners, and so does a game started alone from its card at the table you last played (a first one: the 4-player board, free-for-all). If the players no longer fit the teams, the setup shows again.
+- At the end the host sees **Next game: 4-player board, free-for-all · CHANGE** (tap SEE THE BOARD to reach it): CHANGE picks the board and mode for the next game, and PLAY AGAIN starts on it.
 - The host picks the **board**: the 4-player board (a cross, 52 squares round) or the 6-player board (six arms round a hexagon, 66 squares round). Five or six players need the 6-player board.
 - And the **mode**: **free-for-all**, or **teams** — on the 4-player board 2 v 2, partners opposite each other; on the 6-player board 3 teams of 2 (partners opposite) or 2 teams of 3 (every other arm). Teams need every seat of the board filled. **MIX TEAMS** deals new partners.
 - With fewer players than arms, the empty arms stay empty: two players on the 4-player board sit opposite each other.
@@ -17,7 +18,7 @@ Race your four tokens from your yard, once round the board and up your home colu
 - If only one move is possible (or all of them come to the same thing, like bringing out any token on a 6), it is made for you. Otherwise every token that can move gets a ring: **tap a ring** to move that token. Where it would land is marked.
 - Land on another player's token and it goes **back to its yard**.
 - **Star squares are safe**, and so is every start square: nobody is sent home from them, and any number of tokens may share them.
-- Your own tokens may share a square: a stack, with its count beside it (as notches on its rim when other players share the square too). There are no blocks: anyone may pass anyone.
+- Your own tokens may share a square: a stack, with its count beside it (as notches on its rim when other players share the square too). When several players crowd one safe square, their tokens stand around it, threaded back to it, so every mark stays readable. There are no blocks: anyone may pass anyone.
 
 ## Getting home
 - You need the **exact roll** to reach the middle: on the square before it you need a 1. A roll that would go past it cannot be played.

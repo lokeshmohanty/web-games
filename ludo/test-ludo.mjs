@@ -360,6 +360,46 @@ console.log("\nsetup only the first time");
 	check("PLAY AGAIN with a seat gone: teams no longer fit, so the setup", v.phase === "setup" && v.mode === "ffa");
 }
 
+console.log("\nthe next game: changed at the end, for the next game only");
+{
+	const H = geometry(4).HOME;
+	const { g, v } = table(["pA", "bot_1"], { tokens: [[55, H, H, H], [-1, -1, -1, -1]], rolls: [1] });
+	roll(g, "pA");
+	check("(the game is over)", v().over);
+	let n = g.nextGame();
+	check("at the end: next game is this one's board and mode, with the choices that fit two (both boards, free-for-all only)", n.board === 4 && n.mode === "ffa" && n.boards.join() === "4,6" && n.modes.join() === "ffa", JSON.stringify(n));
+	check("teams cannot be picked for two (teams need every seat)", g.setNext({ mode: "pairs" }) !== undefined && g.nextGame().mode === "ffa");
+	check("before the end there is no next game to change", (() => {
+		const t2 = table(["pA", "bot_1"]);
+		return t2.g.setNext({ board: 6 }) !== undefined;
+	})());
+	check("the 6-player board for next game", g.setNext({ board: 6 }) === undefined && g.nextGame().board === 6 && v().board === 4);
+	g.init({ seats: seatsOf("pA", "bot_1"), opts: {}, seed: 8, match: 1, first: "bot_1" });
+	let w = v();
+	check("PLAY AGAIN: straight into play on the board picked for next game", w.phase === "play" && w.board === 6 && w.arms.join() === "0,3", JSON.stringify({ phase: w.phase, board: w.board, arms: w.arms }));
+	// Four, 2 v 2 picked for next game, then a seat gone: back to the setup.
+	const f = table(["pA", "bot_1", "bot_2", "bot_3"], { tokens: [[55, H, H, H], [-1, -1, -1, -1], [10, -1, -1, -1], [-1, -1, -1, -1]], rolls: [1] });
+	f.g.apply({ action: { roll: true }, by: "pA" });
+	n = f.g.nextGame();
+	check("four at the end: 2 v 2 on offer for next game", f.v().over && n.modes.join() === "ffa,pairs", JSON.stringify(n));
+	check("2 v 2 for next game", f.g.setNext({ mode: "pairs" }) === undefined && f.g.nextGame().mode === "pairs");
+	check("the 6-player board for four: teams no longer fit, so free-for-all", f.g.setNext({ board: 6 }) === undefined && f.g.nextGame().mode === "ffa" && f.g.nextGame().modes.join() === "ffa");
+	f.g.setNext({ board: 4 });
+	f.g.setNext({ mode: "pairs" });
+	f.g.init({ seats: seatsOf("pA", "bot_1", "bot_2", "bot_3"), opts: {}, seed: 9, match: 1, first: "bot_1" });
+	w = f.v();
+	check("PLAY AGAIN: 2 v 2 straight away", w.phase === "play" && w.mode === "pairs" && w.teams.join() === "0,1,0,1");
+	check("the next game's pick travels with the snapshot (an heir's PLAY AGAIN keeps it)", (() => {
+		const h = table(["pA", "bot_1"], { tokens: [[55, H, H, H], [-1, -1, -1, -1]], rolls: [1] });
+		roll(h.g, "pA");
+		h.g.setNext({ board: 6 });
+		const heir = game();
+		heir.restore({ snapshot: h.g.snapshot() });
+		heir.init({ seats: seatsOf("pA", "bot_1"), opts: {}, seed: 2, match: 1 });
+		return heir.view({ seat: null }).board === 6 && heir.view({ seat: null }).phase === "play";
+	})());
+}
+
 console.log("\nskipping a turn");
 {
 	const { g } = table(["pA", "pB", "bot_1"]);

@@ -87,7 +87,7 @@ style.textContent = `
 	/* A ring pushed off its token: see-through, so the board under it still reads. */
 	.lu-pick.away { border-style: solid; }
 	.lu-pick svg { width: 20px; height: 20px; pointer-events: none; }
-	.lu-pick b { position: absolute; top: -9px; right: -9px; min-width: 18px; height: 18px; padding: 0 3px; box-sizing: border-box;
+	.lu-pick b { position: absolute; min-width: 18px; height: 18px; padding: 0 3px; box-sizing: border-box;
 		border-radius: 9px; background: var(--ink); color: var(--bg); font: 700 12px/18px var(--font-mono); text-align: center; pointer-events: none; }
 	.lu-pick:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 	@keyframes lu-pulse { 50% { transform: scale(1.08); box-shadow: 0 0 20px var(--accent-glow), 0 0 0 2px var(--accent-glow); } }
@@ -121,6 +121,11 @@ style.textContent = `
 	.lu-teams span { display: inline-flex; align-items: center; gap: 4px; }
 	.lu-teams svg { width: 14px; height: 14px; }
 	.lu-teams b { color: var(--ink); }
+	/* The end: what the next game will be, and CHANGE (the host's). */
+	.lu-next { display: flex; align-items: center; justify-content: center; gap: 4px 10px; flex-wrap: wrap; font-size: 0.85rem; color: var(--ink-2); text-align: center; }
+	.lu-next[hidden] { display: none; }
+	.lu-next b { color: var(--ink); font-weight: 600; }
+	.lu-next .neon-btn { min-height: 44px; min-width: 44px; padding: 8px 14px; font-size: 0.85rem; }
 `;
 document.head.append(style);
 
@@ -154,7 +159,9 @@ die.append(...pips);
 const said = el("div", "lu-said");
 said.setAttribute("aria-live", "polite");
 bar.append(die, said);
-stage.append(statusEl, playersEl, fill, bar);
+const nextEl = el("div", "lu-next");
+nextEl.hidden = true;
+stage.append(statusEl, playersEl, nextEl, fill, bar);
 document.body.append(stage);
 const c2d = canvas.getContext("2d");
 
@@ -321,7 +328,7 @@ function layout() {
 	const cs = getComputedStyle(stage);
 	const room = (k) => parseFloat(cs[k]) || 0;
 	const w = stage.clientWidth - room("paddingLeft") - room("paddingRight");
-	const h = stage.clientHeight - room("paddingTop") - room("paddingBottom") - statusEl.offsetHeight - playersEl.offsetHeight - bar.offsetHeight - 3 * 6;
+	const h = stage.clientHeight - room("paddingTop") - room("paddingBottom") - statusEl.offsetHeight - playersEl.offsetHeight - nextEl.offsetHeight - bar.offsetHeight - (nextEl.hidden ? 3 : 4) * 6;
 	// The board's extent, turned (each turn is one of its symmetries, so only its corner moves).
 	const c = Math.cos(rot);
 	const s = Math.sin(rot);
@@ -540,23 +547,75 @@ function groups(list) {
 			out.push({ x, y, r, seat: t.seat, count: 1, members: [t], cx: x, cy: y, shared: false });
 		}
 	}
+	const crowded = [];
 	for (const here of bySquare.values()) {
 		const seats = [...new Set(here.map((t) => t.seat))];
 		const [cx, cy] = px(here[0].at);
-		const homeSq = here[0].p === view.home;
-		const n = seats.length;
-		// Several players on one square stand in a ring round it, each at
-		// least SHARED_R across and 4px apart, so every mark reads; their
-		// stacks count in notches pointing out of the ring (drawToken).
-		const size = n > 1 ? Math.max(SHARED_R, cellPx * 0.3) : r;
-		const off = n > 1 ? (size + 2) / Math.sin(Math.PI / n) : 0;
-		seats.forEach((seat, k) => {
-			const members = here.filter((t) => t.seat === seat);
-			const a = (k / n) * Math.PI * 2 - Math.PI / 2 + (homeSq ? 0 : Math.PI / 4);
-			out.push({ x: cx + Math.cos(a) * off, y: cy + Math.sin(a) * off, r: size, seat, count: members.length, members, cx, cy, shared: n > 1 });
-		});
+		if (seats.length === 1) out.push({ x: cx, y: cy, r, seat: seats[0], count: here.length, members: here, cx, cy, shared: false });
+		else crowded.push({ cx, cy, home: here[0].p === view.home, seats: seats.map((seat) => ({ seat, members: here.filter((t) => t.seat === seat) })) });
+	}
+	// What a crowded square must keep clear of: every other token standing
+	// still, and the yards' spots (a spot's ring is the yard's art).
+	const still = out.filter((g) => !g.members.some((m) => m.moving));
+	const spots = [];
+	for (let arm = 0; arm < geo.n; arm++) for (const s of geo.yard(arm).spots) spots.push({ x: px(s)[0], y: px(s)[1], r: cellPx * 0.42, count: 1 });
+	const W = parseFloat(canvas.style.width) || 0;
+	const H = parseFloat(canvas.style.height) || 0;
+	for (const sq of crowded) {
+		const placed = layoutCrowd(sq, [...still, ...spots], W, H);
+		out.push(...placed);
+		still.push(...placed);
 	}
 	return out;
+}
+
+/**
+ * Several players on one square (a safe square): each stands at least
+ * SHARED_R across, 4px from the next. Six of those cannot fit in a 22px
+ * square, so they spill — never onto another token, its count, a yard's
+ * spot or off the board (review, 2026-11-23). First a ring round the square,
+ * turned until it is clear; failing that, each token takes the nearest
+ * clear point of a lattice round the square, tethered back to it (frame).
+ */
+function layoutCrowd({ cx, cy, home, seats }, others, W, H) {
+	const n = seats.length;
+	const size = Math.max(SHARED_R, cellPx * 0.3);
+	const notched = (g) => g.count > 1 && g.shared !== false;
+	/** Room two discs need: their halos apart, and a count's notch (5.5px out) clear of the other's rim. */
+	const need = (a, b) => a.r + b.r + 3 + (notched(a) ? 4 : 0) + (notched(b) ? 4 : 0);
+	const free = (g, against) => g.x >= g.r + 1 && g.y >= g.r + 1 && g.x <= W - g.r - 1 && g.y <= H - g.r - 1 && against.every((o) => Math.hypot(g.x - o.x, g.y - o.y) >= need(g, o));
+	const make = (s, x, y) => ({ x, y, r: size, seat: s.seat, count: s.members.length, members: s.members, cx, cy, shared: true });
+	const ring = (n > 1 ? size + 2 : 0) / Math.sin(Math.PI / n);
+	const base = -Math.PI / 2 + (home ? 0 : Math.PI / 4);
+	for (let k = 0; k < 24; k++) {
+		const turn = base + (k % 2 ? -1 : 1) * Math.ceil(k / 2) * (Math.PI / 12);
+		const try1 = seats.map((s, i) => make(s, cx + Math.cos(turn + (i / n) * Math.PI * 2) * ring, cy + Math.sin(turn + (i / n) * Math.PI * 2) * ring));
+		if (try1.every((g) => free(g, others))) return try1;
+	}
+	// The lattice: hexagonal, spaced for notched neighbours, nearest first.
+	const step = 2 * size + 7;
+	const points = [];
+	for (let row = -6; row <= 6; row++)
+		for (let col = -6; col <= 6; col++) {
+			const x = cx + (col + (row % 2 ? 0.5 : 0)) * step;
+			const y = cy + row * step * 0.866;
+			points.push([x, y, Math.hypot(x - cx, y - cy)]);
+		}
+	points.sort((a, b) => a[2] - b[2]);
+	const placed = [];
+	for (const s of seats) {
+		let g = null;
+		for (const [x, y] of points) {
+			const c = make(s, x, y);
+			if (free(c, [...others, ...placed])) {
+				g = c;
+				break;
+			}
+		}
+		// Nowhere clear at all (never on these boards): on the square, over whatever is there.
+		placed.push(g ?? make(s, cx, cy));
+	}
+	return placed;
 }
 const SHARED_R = 7; // px: the smallest a token is drawn beside others
 
@@ -587,12 +646,10 @@ function frame(now) {
 		const gs = groups(list);
 		// The moving token last, over the others.
 		gs.sort((a, b) => Number(a.members.some((m) => m.moving)) - Number(b.members.some((m) => m.moving)));
-		drawn = gs.map((gr) => ({ seat: gr.seat, x: gr.x, y: gr.y, r: gr.r, count: gr.count, square: `${gr.cx.toFixed(1)},${gr.cy.toFixed(1)}`, shared: gr.shared, marks: drawToken(gr, t) }));
-		// A ring pushed off its token: a line back to it.
+		// A ring pushed off its token: a line back to it, under the tokens.
 		for (const tg of targets) {
 			const d = Math.hypot(tg.x - tg.tx, tg.y - tg.ty);
 			if (d < 6) continue;
-			// From the token's edge to the ring's: shown through the ring, which is see-through.
 			const [ux, uy] = [(tg.x - tg.tx) / d, (tg.y - tg.ty) / d];
 			const from = Math.min(d, cellPx * 0.36);
 			c2d.beginPath();
@@ -602,6 +659,17 @@ function frame(now) {
 			c2d.strokeStyle = t.tokens.accent;
 			c2d.stroke();
 		}
+		// A crowded square's tokens pushed off it: a thread back to the square they stand on.
+		for (const gr of gs) {
+			if (!gr.shared || Math.hypot(gr.x - gr.cx, gr.y - gr.cy) < cellPx * 0.75) continue;
+			c2d.beginPath();
+			c2d.moveTo(gr.cx, gr.cy);
+			c2d.lineTo(gr.x, gr.y);
+			c2d.lineWidth = 1.5;
+			c2d.strokeStyle = colourOf(gr.seat);
+			c2d.stroke();
+		}
+		drawn = gs.map((gr) => ({ seat: gr.seat, x: gr.x, y: gr.y, r: gr.r, count: gr.count, square: `${gr.cx.toFixed(1)},${gr.cy.toFixed(1)}`, shared: gr.shared, marks: drawToken(gr, t, gs) }));
 	}
 	if (anim || tumbling) paint();
 }
@@ -614,7 +682,7 @@ function frame(now) {
  * on its rim, pointing away from the others, so nothing covers a neighbour.
  * Returns where the notches are drawn (for the tests).
  */
-function drawToken({ seat, x, y, r, count = 1, cx = x, cy = y, shared = false }, t) {
+function drawToken({ seat, x, y, r, count = 1, cx = x, cy = y, shared = false }, t, all = []) {
 	const { tokens } = t;
 	const layers = shared ? 1 : Math.min(count, 3);
 	for (let k = layers - 1; k >= 0; k--) {
@@ -642,8 +710,17 @@ function drawToken({ seat, x, y, r, count = 1, cx = x, cy = y, shared = false },
 	c2d.stroke();
 	const marks = [];
 	if (count > 1 && shared) {
-		// One notch per token, fanned round the outward direction.
-		const out = Math.atan2(y - cy, x - cx);
+		// One notch per token, fanned round the direction most clear of the
+		// other tokens (out of its ring, as a rule).
+		let out = Math.atan2(y - cy, x - cx);
+		let best = -1;
+		for (let k = 0; k < 16; k++) {
+			const a = out + (k * Math.PI) / 8;
+			const [tx, ty] = [x + Math.cos(a) * (r + 5.5), y + Math.sin(a) * (r + 5.5)];
+			const room = Math.min(Infinity, ...all.filter((o) => o.x !== x || o.y !== y).map((o) => Math.hypot(tx - o.x, ty - o.y) - o.r));
+			if (room > best + 0.5) [best, out] = [room, a];
+			if (k === 0 && room > 4) break; // straight out is clear: keep it
+		}
 		for (let k = 0; k < count; k++) {
 			const a = out + (k - (count - 1) / 2) * 0.45;
 			const [ux, uy] = [Math.cos(a), Math.sin(a)];
@@ -827,9 +904,9 @@ function placeTargets() {
 		return { x, y, tx: x, ty: y, move };
 	});
 	// Stacks and side-by-side tokens are drawn off the square's centre: aim at the drawn token.
-	const drawn = groups(tokenSpots(performance.now()));
+	const drawnNow = groups(tokenSpots(performance.now()));
 	for (const tg of list) {
-		const gr = drawn.find((d) => d.members.some((m) => m.seat === tg.move.owner && m.k === tg.move.token));
+		const gr = drawnNow.find((d) => d.members.some((m) => m.seat === tg.move.owner && m.k === tg.move.token));
 		if (gr) [tg.x, tg.y, tg.tx, tg.ty] = [gr.x, gr.y, gr.x, gr.y];
 	}
 	const MIN = 47;
@@ -876,12 +953,28 @@ function placeTargets() {
 		btn.setAttribute("aria-label", `${what}${many} (${k + 1})`);
 		const off = Math.hypot(tg.x - tg.tx, tg.y - tg.ty);
 		if (off >= 6) btn.classList.add("away");
-		// Far enough that the ring no longer sits over its token: the token's mark in it.
-		if (off >= 22) btn.append(tokenIcon(tg.move.owner));
-		// A stack: how many tokens stand there (any one of them moves).
+		/** How far a circle at (x, y), radius rad, keeps from every token drawn (negative: over one). */
+		const clear = (x, y, rad) => Math.min(Infinity, ...drawnNow.map((d) => Math.hypot(x - d.x, y - d.y) - d.r - rad));
+		// Far enough that the ring no longer sits over its token, and its middle
+		// over no other token: the token's mark in it.
+		if (off >= 22 && clear(tg.x, tg.y, 10) >= 1) btn.append(tokenIcon(tg.move.owner));
+		// A stack: how many tokens stand there (any one of them moves), on the
+		// ring's rim where it covers no token (top right if it can).
 		const stack = tg.move.from >= 0 ? view.tokens[tg.move.owner].filter((p) => p === tg.move.from).length : 1;
 		if (stack > 1) {
-			btn.append(el("b", null, String(stack)));
+			const badge = el("b", null, String(stack));
+			let best = null;
+			for (const rad of [24, 32])
+				for (let k = 0; k < 8; k++) {
+					const a = -Math.PI / 4 + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * (Math.PI / 4);
+					const [dx, dy] = [Math.cos(a) * rad, Math.sin(a) * rad];
+					const inside = tg.x + dx >= 9 && tg.y + dy >= 9 && tg.x + dx <= W - 9 && tg.y + dy <= H - 9;
+					const room = inside ? clear(tg.x + dx, tg.y + dy, 9) : -Infinity;
+					if (!best || (best.room < 1 && room > best.room)) best = { dx, dy, room };
+				}
+			badge.style.left = `${22 + best.dx - 9}px`;
+			badge.style.top = `${22 + best.dy - 9}px`;
+			btn.append(badge);
 			btn.dataset.stack = String(stack);
 		}
 		btn.addEventListener("click", () => pick(tg.move));
@@ -941,6 +1034,8 @@ addEventListener("keydown", (e) => {
 
 let lastSetup = "";
 function renderSetup() {
+	if (choosingNext) return renderNextChoices();
+	delete setup.dataset.next;
 	const on = view?.phase === "setup";
 	setup.hidden = !on;
 	if (!on) {
@@ -1019,14 +1114,104 @@ function renderSetup() {
 	setup.replaceChildren(...parts);
 }
 
+/** CHANGE at the end: the board and mode for the next game, only what fits this table. */
+function renderNextChoices() {
+	const n = nextGame();
+	if (!n) return;
+	setup.hidden = false;
+	setup.dataset.next = "1";
+	const key = JSON.stringify(["next", n]);
+	if (key === lastSetup) return;
+	lastSetup = key;
+	const boards = el("div", "lu-choice");
+	boards.setAttribute("role", "group");
+	boards.setAttribute("aria-label", "Next game's board");
+	for (const b of [4, 6]) {
+		const btn = el("button", "neon-btn", `${b}-PLAYER BOARD`);
+		btn.type = "button";
+		btn.dataset.board = String(b);
+		btn.setAttribute("aria-pressed", String(n.board === b));
+		btn.disabled = !n.boards.includes(b);
+		btn.onclick = () => pickNext({ board: b });
+		boards.append(btn);
+	}
+	const modes = el("div", "lu-choice");
+	modes.setAttribute("role", "group");
+	modes.setAttribute("aria-label", "Next game's mode");
+	for (const mode of ["ffa", "pairs", ...(n.board === 6 ? ["trios"] : [])]) {
+		const btn = el("button", "neon-btn", modeName(n.board, mode).toUpperCase());
+		btn.type = "button";
+		btn.dataset.mode = mode;
+		btn.setAttribute("aria-pressed", String(n.mode === mode));
+		btn.disabled = !n.modes.includes(mode);
+		btn.onclick = () => pickNext({ mode });
+		modes.append(btn);
+	}
+	const parts = [el("h2", null, "NEXT GAME"), el("p", null, "For the next game: PLAY AGAIN starts on it, and so does this game's card."), boards, modes];
+	if (n.modes.length === 1) parts.push(el("p", null, n.board === 4 ? "Teams: four players on the 4-player board." : "Teams: six players on the 6-player board."));
+	setup.replaceChildren(...parts);
+}
+
 // ------------------------------------------------------------------ views
 
 function render() {
 	renderStatus();
 	renderPlayers();
 	renderDie();
+	renderNext();
 	renderSetup();
 	placeTargets();
+}
+
+// ------------------------------------------------------------ next game
+//
+// Lokesh, 2026-11-23: "A 'Next game' line". At the end the host's phone
+// says what PLAY AGAIN will start — "Next game: 4-player board,
+// free-for-all · CHANGE" — and CHANGE picks the board and mode for the next
+// game only (what fits the table: teams need every seat filled). The pick
+// goes to the host's own rules (the platform takes no moves after the end;
+// the host's rules are the live ones) and to the table kept on this device,
+// so a card's tap starts on it too. The shell's end card sits over the game:
+// SEE THE BOARD tucks it away, and the line is there.
+
+let choosingNext = false;
+const modeName = (board, mode) => ({ ffa: "free-for-all", pairs: board === 4 ? "2 v 2" : "teams of 2", trios: "teams of 3" })[mode];
+/** The next game, as the host's rules have it; null where there is none to change. */
+function nextGame() {
+	if (!view || view.phase !== "play" || !view.over || !arcade.isHost()) return null;
+	try {
+		return rules.nextGame();
+	} catch {
+		return null;
+	}
+}
+function pickNext(change) {
+	if (rules.setNext(change) !== undefined) return;
+	const n = rules.nextGame();
+	lastTable = { n: view.seats.length, board: n.board, mode: n.mode };
+	arcade.send("store.set", { key: "table", value: lastTable });
+	render();
+}
+let lastNext = "";
+function renderNext() {
+	const n = busy() ? null : nextGame();
+	if (!n) choosingNext = false;
+	const key = JSON.stringify([n, choosingNext]);
+	if (key === lastNext) return;
+	lastNext = key;
+	nextEl.hidden = !n;
+	if (!n) return void nextEl.replaceChildren();
+	const change = el("button", "neon-btn lu-next-change", choosingNext ? "DONE" : "CHANGE");
+	change.type = "button";
+	change.setAttribute("aria-label", choosingNext ? "Done choosing the next game" : "Change the next game's board or mode");
+	change.onclick = () => {
+		choosingNext = !choosingNext;
+		lastSetup = "";
+		render();
+	};
+	const what = el("span");
+	what.append(document.createTextNode("Next game: "), el("b", null, `${n.board}-player board, ${modeName(n.board, n.mode)}`));
+	nextEl.replaceChildren(what, change);
 }
 
 arcade.on("view", ({ state }) => {
@@ -1128,6 +1313,7 @@ addEventListener("resize", layout);
 const ro = new ResizeObserver(layout);
 ro.observe(stage);
 ro.observe(playersEl);
+ro.observe(nextEl);
 arcade.init.then(layout);
 
 /**

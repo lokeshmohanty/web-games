@@ -374,12 +374,13 @@
 				const people = seats.filter((p) => !p.bot).length;
 				let saved = null;
 				try {
-					saved = prev ? { n: prev.seats.length, board: prev.board, mode: prev.mode } : last();
+					// PLAY AGAIN: the board and mode picked for the next game at the end, else this one's.
+					saved = prev ? { n: prev.seats.length, board: prev.next?.board ?? prev.board, mode: prev.next?.mode ?? prev.mode } : last();
 				} catch {}
 				const fits = (b, m) => boardsFor(n).includes(b) && modesFor(b, n).includes(m);
 				const board = boardsFor(n).includes(saved?.board) ? saved.board : n <= 4 ? 4 : 6;
 				const mode = modesFor(board, n).includes(saved?.mode) ? saved.mode : "ffa";
-				const straight = prev ? (match ?? 0) > 0 && fits(prev.board, prev.mode) : people === 1 && n > 1 && (!saved || (saved.n === n && fits(saved.board, saved.mode)));
+				const straight = prev ? (match ?? 0) > 0 && fits(saved.board, saved.mode) : people === 1 && n > 1 && (!saved || (saved.n === n && fits(saved.board, saved.mode)));
 				s = {
 					match: (match ?? 0) + 1,
 					phase: "setup", // "setup" | "play"
@@ -578,6 +579,39 @@
 				settle();
 				if (!s.over && s.turn === i) next();
 				return true;
+			},
+
+			/**
+			 * Not a rule: the next game's board and mode, and the boards and
+			 * modes that fit this table (teams need every seat filled), for the
+			 * host's page to offer at the end ("Next game: … · CHANGE").
+			 */
+			nextGame() {
+				const n = count();
+				const next = s.next ?? { board: s.board, mode: s.mode };
+				return { board: next.board, mode: next.mode, boards: boardsFor(n), modes: modesFor(next.board, n) };
+			},
+			/**
+			 * Not a rule: pick the next game's board or mode, once this one is
+			 * over (the platform takes no moves after the end, so the host's
+			 * page calls this on its own rules, which are the live ones). PLAY
+			 * AGAIN starts with it. A board that leaves the mode unfit falls
+			 * back to free-for-all.
+			 */
+			setNext({ board, mode } = {}) {
+				if (s.phase !== "play" || !s.over) return "only once the game is over";
+				const n = count();
+				const next = { ...(s.next ?? { board: s.board, mode: s.mode }) };
+				if (board != null) {
+					if (!boardsFor(n).includes(board)) return n > 4 ? "five or six players need the 6-player board" : "no such board";
+					next.board = board;
+					if (!modesFor(board, n).includes(next.mode)) next.mode = "ffa";
+				}
+				if (mode != null) {
+					if (!modesFor(next.board, n).includes(mode)) return MODES.includes(mode) ? "teams need every seat on the board filled" : "no such mode";
+					next.mode = mode;
+				}
+				s.next = next;
 			},
 
 			snapshot: () => JSON.parse(JSON.stringify(s)),
