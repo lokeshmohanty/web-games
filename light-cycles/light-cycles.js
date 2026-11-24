@@ -46,6 +46,7 @@ style.textContent = `
 	.lc-scores { display: flex; flex-wrap: wrap; gap: 4px 10px; justify-content: center;
 		font-size: 0.75rem; letter-spacing: 0.06em; }
 	.lc-scores span { white-space: nowrap; }
+	.lc-key { width: 12px; height: 12px; margin-right: 4px; vertical-align: -1px; }
 `;
 document.head.append(style);
 
@@ -112,9 +113,39 @@ let seq = 0; // numbers each steering press
 const riders = () => view?.riders ?? [];
 const me = () => riders().find((x) => x.id === arcade.party?.self) ?? null;
 const nameOf = (id) => arcade.party?.members.find((m) => m.id === id)?.name ?? "Player";
-// Riders wear the theme's player colours, resolved on this device, so a theme
-// change recolours every trail.
-const colorOf = (i) => arcade.theme?.players[i % 8] ?? "gray"; // theme-exempt: before the theme arrives
+// Riders wear the theme's player colours, each its player's pick (the
+// platform's seat colours, no two alike; seat order on an older shell),
+// resolved on this device, so a theme change recolours every trail.
+let seatCols = [];
+const colorOf = (i) => arcade.theme?.players[seatCols[i] ?? i % 8] ?? "gray"; // theme-exempt: before the theme arrives
+// And each rider its own pattern, on its trail and its head, so two never
+// differ by colour alone (picked colours can be close, or one under colour
+// blindness: review, 2026-11-24). By seat: solid, dot, frame, dash-dot,
+// plus, bars across, bars down, half.
+const PATTERNS = ["solid", "dot", "frame", "dashdot", "plus", "hbars", "vbars", "half"];
+const patternOf = (i) => PATTERNS[i % PATTERNS.length];
+/** Rider i's pattern into (x, y, w, h) on g, in its fill style; odd: the cell's (c + r) parity. */
+function pattern(g, i, x, y, w, h, odd = false) {
+	const p = patternOf(i);
+	const t = Math.max(1, Math.round(Math.min(w, h) / 3));
+	const box = (a, b, cw, ch) => g.fillRect(x + a, y + b, cw, ch);
+	if (p === "solid" || (p === "dashdot" && !odd)) box(0, 0, w, h);
+	else if (p === "dot" || p === "dashdot") box(w / 4, h / 4, w / 2, h / 2);
+	else if (p === "frame") {
+		const f = Math.max(1, Math.round(Math.min(w, h) / 4));
+		box(0, 0, w, f), box(0, h - f, w, f), box(0, 0, f, h), box(w - f, 0, f, h);
+	} else if (p === "plus") box(0, (h - t) / 2, w, t), box((w - t) / 2, 0, t, h);
+	else if (p === "hbars") box(0, 0, w, t), box(0, h - t, w, t);
+	else if (p === "vbars") box(0, 0, t, h), box(w - t, 0, t, h);
+	else {
+		g.beginPath();
+		g.moveTo(x, y);
+		g.lineTo(x + w, y);
+		g.lineTo(x, y + h);
+		g.closePath();
+		g.fill();
+	}
+}
 const glows = () => !/,\s*0\)$/.test(arcade.theme?.tokens.glow ?? ", 0)");
 
 // ---------------------------------------------------------------- drawing
@@ -155,15 +186,18 @@ function repaintTrails() {
 	for (let r = 0; r < ROWS; r++) {
 		for (let c = 0; c < COLS; c++) {
 			const owner = grid[idx(c, r)];
-			if (owner) paintCell(c, r, colorOf(owner - 1));
+			if (owner) paintCell(c, r, owner - 1);
 		}
 	}
 }
 
-function paintCell(c, r, color) {
-	trail2d.fillStyle = color;
-	trail2d.globalAlpha = 0.85;
+/** Rider i's wall at (c, r): its colour, faint, and its pattern on top. */
+function paintCell(c, r, i) {
+	trail2d.fillStyle = colorOf(i);
+	trail2d.globalAlpha = 0.3;
 	trail2d.fillRect(c * cellW, r * cellH, cellW, cellH);
+	trail2d.globalAlpha = 0.9;
+	pattern(trail2d, i, c * cellW, r * cellH, cellW, cellH, (c + r) % 2 === 1);
 	trail2d.globalAlpha = 1;
 }
 
@@ -178,6 +212,9 @@ function drawHeads() {
 		head2d.shadowBlur = glows() ? Math.min(cellW, cellH) * 1.6 : 0;
 		head2d.fillRect(rider.c * cellW, rider.r * cellH, cellW, cellH);
 		head2d.shadowBlur = 0;
+		// Its pattern inside, in its colour: the head says whose it is.
+		head2d.fillStyle = colorOf(i);
+		pattern(head2d, i, rider.c * cellW + 1, rider.r * cellH + 1, cellW - 2, cellH - 2);
 	});
 }
 
@@ -187,6 +224,15 @@ function renderScores() {
 		...riders().map((rider, i) => {
 			const s = el("span", null, `${nameOf(rider.id)} ${rider.wins}`);
 			s.style.color = colorOf(i);
+			// The rider's pattern beside its name, the key to its trail.
+			const key = document.createElement("canvas");
+			key.width = key.height = 12;
+			key.className = "lc-key";
+			key.setAttribute("aria-hidden", "true");
+			const g = key.getContext("2d");
+			g.fillStyle = colorOf(i);
+			pattern(g, i, 0, 0, 12, 12);
+			s.prepend(key);
 			s.style.opacity = rider.alive || !racing ? "1" : "0.4";
 			return s;
 		}),
@@ -229,15 +275,22 @@ function onView(next) {
 		grid = new Uint8Array(COLS * ROWS);
 	}
 	view = next;
+	const cols = arcade.seatColors?.(next.riders.map((r) => r.id)) ?? [];
+	const recoloured = cols.join() !== seatCols.join();
+	seatCols = cols;
 	if (next.grid) {
 		grid = Uint8Array.from(next.grid, Number);
 		repaintTrails();
-	} else if (next.step !== lastStep) {
-		next.riders.forEach((rider, i) => {
-			if (!rider.alive) return;
-			grid[idx(rider.c, rider.r)] = i + 1;
-			paintCell(rider.c, rider.r, colorOf(i));
-		});
+	} else {
+		// Someone picked another colour: every wall of theirs changes too.
+		if (recoloured) repaintTrails();
+		if (next.step !== lastStep) {
+			next.riders.forEach((rider, i) => {
+				if (!rider.alive) return;
+				grid[idx(rider.c, rider.r)] = i + 1;
+				paintCell(rider.c, rider.r, i);
+			});
+		}
 	}
 	lastStep = next.step;
 	render();
@@ -299,6 +352,8 @@ arcade.debug = () => ({
 	winner: view?.decided ? view.winner : undefined,
 	tickMs: view?.tickMs ?? 100,
 	riders: riders().map((r) => ({ ...r })),
+	colors: riders().map((_, i) => seatCols[i] ?? i % 8),
+	patterns: riders().map((_, i) => patternOf(i)),
 	walls: grid.reduce((n, v) => n + (v ? 1 : 0), 0),
 	mine: me()?.id ?? null,
 });

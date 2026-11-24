@@ -15,9 +15,10 @@
 // moves the ghost. Every cell a mark may go on is dotted on your turn, and a
 // tap on any other is answered here, at once, without asking the host.
 //
-// Seats wear the theme's player colours in seat order (the end card's
-// --p1…--p4), each with its own shape too — ring, cross, triangle, diamond —
-// so the marks read without colour.
+// Seats wear the theme's player colours, each its player's pick (the
+// platform's seat colours, as on the end card; seat order on an older shell),
+// each with its own shape too — ring, cross, triangle, diamond — so the
+// marks read without colour, whatever colours are picked.
 
 const R = fiveInARowRules;
 arcade.managed(R.game());
@@ -111,7 +112,10 @@ let raf = 0;
 let drawn = 0; // frames painted, for the tests
 
 const theme = () => arcade.theme;
-const colourOf = (seat) => theme()?.players[seat % 8] ?? "gray"; // theme-exempt: before the theme arrives
+// Each seat's colour, an index into the theme's players: its player's pick,
+// no two alike (sdk/v2/runtime.js seatColors), set on every view.
+let seatCols = [];
+const colourOf = (seat) => theme()?.players[seatCols[seat] ?? seat % 8] ?? "gray"; // theme-exempt: before the theme arrives
 const glows = () => !/,\s*0\)$/.test(theme()?.tokens.glow ?? ", 0)");
 /** "rgba(r, g, b, a)" with its alpha replaced. */
 const alpha = (rgba, a) => String(rgba).replace(/,\s*[\d.]+\)$/, `, ${a})`);
@@ -593,6 +597,7 @@ canvas.addEventListener("blur", () => {
 function onView({ state }) {
 	const before = view;
 	view = state;
+	seatCols = arcade.seatColors?.(state.seats ?? []) ?? [];
 	marks = R.boardOf(state.marks);
 	legalNow = myTurn() ? R.legalCells(marks) : [];
 	if (pending && !legalNow.some(([x, y]) => x === pending[0] && y === pending[1])) pending = null;
@@ -651,6 +656,8 @@ arcade.debug = () => {
 	const r = canvas.getBoundingClientRect();
 	return {
 		...(view ?? { marks: [], seats: [], winner: null }),
+		colors: (view?.seats ?? []).map((_, i) => seatCols[i] ?? i % 8),
+		shapes: (view?.seats ?? []).map((_, i) => SHAPES[i % SHAPES.length]),
 		cam: { ...cam },
 		box: { left: r.left, top: r.top, w: size.w, h: size.h },
 		legal: legalNow.map((c) => [...c]),
