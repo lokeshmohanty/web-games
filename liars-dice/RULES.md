@@ -12,6 +12,7 @@ Bid on dice you cannot see, and call out the bids you think are lies. Be the las
 - When someone calls LIAR!, every cup is lifted and the dice are counted.
 - If there are at least as many as the bid said, the caller loses a die. Otherwise the bidder does.
 - The player who lost a die starts the next round, or the caller if that player is out. Everyone rolls again.
+- Bots each have their own nerve, new every game: one calls LIAR! early, another lets a bold bid ride.
 
 ## Scoring
 - There are no points. What counts is how many dice you have left.

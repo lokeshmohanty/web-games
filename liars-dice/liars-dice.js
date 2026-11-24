@@ -189,7 +189,7 @@ function setHud(parts) {
 	}
 }
 
-const { DICE, FACES, bidBeats, raisesAfter, resolveCall, rollDice, botAction, nextOpener, seatFactsOf } = liarsDiceRules;
+const { DICE, FACES, bidBeats, raisesAfter, resolveCall, rollDice, botSlack, botAction, nextOpener, seatFactsOf } = liarsDiceRules;
 const PIPS = ["", "⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
 
 // ------------------------------------------------------------------- markup
@@ -266,6 +266,11 @@ let botHands = {}; // botId -> { hand, commit } — held only by the host
 let draftFace = 2;
 let draftCount = 1;
 let botTimer = null;
+// Each bot's bluffing dial for this game (liars-dice-rules.js botSlack), drawn
+// by the host when the game starts; an heir draws its own for the bots it now
+// plays (the dial is a temper, not a secret worth carrying over).
+let botSlacks = {};
+const slackOf = (id) => (botSlacks[id] ??= botSlack());
 
 // The fewest dice each player has held this game, as this phone saw it: a
 // win from one die is a comeback (game.json's achievements).
@@ -485,7 +490,7 @@ function nudgeBot() {
 		const id = turn;
 		const hand = botHands[id]?.hand ?? [];
 		const unknown = totalDice() - (seatOf(id)?.dice ?? 0);
-		hostMove(id, botAction(hand, bid, unknown));
+		hostMove(id, botAction(hand, bid, unknown, Math.random, slackOf(id)));
 	}, 750);
 }
 
@@ -776,6 +781,7 @@ function render() {
 
 function freshSeats() {
 	seats = players().map((id) => ({ id, dice: DICE, out: false }));
+	botSlacks = {}; // a new game, new tempers
 	// The host picks who opens: at random for the party's first game, then
 	// the next seat each NEW GAME (a guest's pick here is replaced by the
 	// host's state).

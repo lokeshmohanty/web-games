@@ -103,6 +103,23 @@ console.log("\nthe bot");
 	check("it can open", opening.type === "bid" && validBid(opening), JSON.stringify(opening));
 }
 
+{
+	// Lokesh, 2026-11-24: bots with a temper. Each bot draws its own bluffing
+	// dial (`slack`) for the game, about 0.9 to 1.4, so one calls early and
+	// another lets a bid ride.
+	const { botSlack, SLACK } = R;
+	const draws = Array.from({ length: 400 }, (_, i) => botSlack(() => (i + 0.5) / 400));
+	check("a bot's slack is drawn between 0.9 and 1.4", SLACK?.[0] === 0.9 && SLACK?.[1] === 1.4 && draws.every((x) => x >= 0.9 && x <= 1.4), `${Math.min(...draws)}–${Math.max(...draws)}`);
+	check("…and covers the range", Math.min(...draws) < 0.95 && Math.max(...draws) > 1.35);
+	check("…from the generator it is given", botSlack(() => 0) === 0.9 && botSlack(() => 0.999999) <= 1.4);
+	// The dial matters: fourteen dice, the bot holding one five and three sixes.
+	// "Five fives" is one over what it expects of fives (its one, plus a third
+	// of the nine it cannot see: 4). A tight bot calls; a loose one raises on its sixes.
+	const hand = [5, 6, 6, 6, 2];
+	const fives = { count: 5, face: 5 };
+	check("a tight bot (0.9) calls a bid a loose one (1.4) lets ride", botAction(hand, fives, 9, () => 0.5, 0.9).type === "liar" && botAction(hand, fives, 9, () => 0.5, 1.4).type !== "liar");
+}
+
 const STATS = { bids: 0, rounds: 0 };
 
 /** Play a whole table out. Returns the winning seat. */

@@ -81,6 +81,15 @@
 		countFace(myDice, face) + unknownDice * P_MATCH;
 
 	/**
+	 * Each bot's own bluffing dial for a game (Lokesh, 2026-11-24): drawn
+	 * between 0.9 and 1.4 (the old fixed 1.1 sits inside), so at one table a
+	 * bot calls early and another lets a bid ride. Two decimals, so it reads
+	 * plainly in a log.
+	 */
+	const SLACK = [0.9, 1.4];
+	const botSlack = (rng = Math.random) => Math.min(SLACK[1], Math.round((SLACK[0] + rng() * (SLACK[1] - SLACK[0])) * 100) / 100);
+
+	/**
 	 * Raise, or call the last bid a lie.
 	 *
 	 * `slack` is the bluffing dial: how far past its own estimate the bot will
@@ -152,6 +161,6 @@
 
 	globalThis.liarsDiceRules = {
 		DICE, FACES, countFace, countAll, validBid, bidBeats, raisesAfter,
-		resolveCall, rollDice, expectedCount, botAction, nextOpener, seatFactsOf,
+		resolveCall, rollDice, expectedCount, SLACK, botSlack, botAction, nextOpener, seatFactsOf,
 	};
 })();
