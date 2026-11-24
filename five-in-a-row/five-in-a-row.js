@@ -657,6 +657,7 @@ arcade.debug = () => {
 	return {
 		...(view ?? { marks: [], seats: [], winner: null }),
 		colors: (view?.seats ?? []).map((_, i) => seatCols[i] ?? i % 8),
+		shapes: (view?.seats ?? []).map((_, i) => SHAPES[i % SHAPES.length]),
 		cam: { ...cam },
 		box: { left: r.left, top: r.top, w: size.w, h: size.h },
 		legal: legalNow.map((c) => [...c]),

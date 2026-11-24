@@ -1051,7 +1051,8 @@ function renderSetup() {
 	}
 	const host = arcade.isHost();
 	const names = view.seats.map((_, i) => who(i));
-	const key = JSON.stringify([view.board, view.mode, view.arms, view.teams, host, arcade.party?.host, names]);
+	// The seats' colours too: a pick while the setup is up redraws it.
+	const key = JSON.stringify([view.board, view.mode, view.arms, view.teams, host, arcade.party?.host, names, view.seats.map((_, i) => seatIdx(i))]);
 	if (key === lastSetup) return;
 	lastSetup = key;
 	const parts = [el("h2", null, "LUDO")];
