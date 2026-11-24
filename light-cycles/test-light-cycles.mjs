@@ -399,5 +399,143 @@ console.log("\nthe round, as the platform runs it");
 	check("…the round took at least the countdown, which the score leaves out", wall >= (4 * R.COUNT_MS) / 1000 && secs <= wall - (4 * R.COUNT_MS) / 1000 + 1e-9, JSON.stringify({ wall, secs }));
 }
 
+
+// ---------------------------------------------------------------------------
+console.log("\nwho starts where, from the seed");
+
+{
+	// Lokesh, 2026-11-24: spawn variety. Each round deals the seats to the
+	// spawns afresh, from the round's seed, so a seat is not always the one
+	// riding east from the left. The spawns themselves stay the designed ones
+	// (the first n for n riders), so the no-mirror and offset rules above
+	// still hold for every table.
+	const { game } = R;
+	const key = (s) => `${s.c},${s.r},${s.dir}`;
+	const spawnsOf = (seed, n = 2) => {
+		const rules = game();
+		rules.init({ seats: Array.from({ length: n }, (_, i) => ({ id: `b${i}`, bot: true })), opts: {}, seed, match: 0 });
+		return rules.view({ seat: null }).riders.map(key);
+	};
+	const firsts = new Set();
+	for (let seed = 1; seed <= 40; seed++) firsts.add(spawnsOf(seed)[0]);
+	check("seat 0 does not always start on the same spawn", firsts.size === 2, [...firsts].join(" | "));
+	check("the same seed deals the same spawns (a run replays)", spawnsOf(7, 5).join() === spawnsOf(7, 5).join());
+	const designed = (n) => SPAWNS.slice(0, n).map((s) => `${s.c},${s.r},${s.d}`).sort().join();
+	let same = true;
+	for (let seed = 1; seed <= 30 && same; seed++) for (const n of [2, 3, 5, 8]) if (spawnsOf(seed, n).sort().join() !== designed(n)) same = false;
+	check("n riders always use the n designed spawns, only in another order", same);
+	// PLAY AGAIN is a new round with a new seed: the deal changes between rounds too.
+	const rules = game();
+	const seats = [{ id: "pA", bot: false }, { id: "b1", bot: true }, { id: "b2", bot: true }];
+	const deals = new Set();
+	for (let m = 0; m < 8; m++) {
+		rules.init({ seats, opts: {}, seed: 100 + m, match: m });
+		deals.add(rules.view({ seat: null }).riders.map(key).join());
+	}
+	check("rounds of one run deal the seats differently", deals.size > 1, `${deals.size} deals in 8 rounds`);
+}
+
+// ---------------------------------------------------------------------------
+console.log("\nobstacles");
+
+{
+	const { game, obstaclesFor, WALL } = R;
+	check("obstacles are drawn with their own wall value, not a rider's", WALL === 9);
+	// The lanes every spawn rides out on: its own cell and the 3x3 round it,
+	// and 12 cells ahead, a cell either side. None may hold a block.
+	const lanes = new Set();
+	for (const sp of SPAWNS) {
+		const [dc, dr] = STEP[sp.d];
+		for (let k = -1; k <= 12; k++)
+			for (let w = -1; w <= 1; w++) {
+				const c = sp.c + dc * k + (dr ? w : 0);
+				const r = sp.r + dr * k + (dc ? w : 0);
+				if (inBounds(c, r)) lanes.add(idx(c, r));
+			}
+	}
+	let inLane = 0;
+	let counts = [];
+	const layouts = new Set();
+	for (let seed = 1; seed <= 50; seed++) {
+		const cells = obstaclesFor(seed);
+		counts.push(cells.length);
+		layouts.add(cells.join());
+		inLane += cells.filter((i) => lanes.has(i)).length;
+		if (cells.some((i) => i < 0 || i >= COLS * ROWS)) inLane += 1000;
+	}
+	check("no block sits in a spawn lane, on any of 50 seeds", inLane === 0, `${inLane} cells`);
+	check("a few blocks: 12 to 30 cells of the 1600", Math.min(...counts) >= 12 && Math.max(...counts) <= 30, `${Math.min(...counts)}–${Math.max(...counts)}`);
+	check("each seed lays them out differently", layouts.size >= 45, `${layouts.size} layouts of 50`);
+	check("the same seed lays the same blocks", obstaclesFor(9).join() === obstaclesFor(9).join());
+	// Every rider can still reach almost all of the arena from its spawn.
+	let worst = Infinity;
+	for (let seed = 1; seed <= 20; seed++) {
+		const grid = newGrid();
+		for (const i of obstaclesFor(seed)) grid[i] = WALL;
+		for (const sp of SPAWNS) worst = Math.min(worst, openSpace(grid, sp.c, sp.r));
+	}
+	check("the blocks never wall a spawn off: every spawn reaches 95% of the arena", worst >= 0.95 * COLS * ROWS, `${worst}`);
+}
+
+{
+	// The setup, the first time only (Lokesh, 2026-11-23, as Ludo): friends'
+	// first round asks the host; PLAY AGAIN goes straight in with what was
+	// picked; one person, alone or with bots, goes straight in with the last
+	// options kept on their phone (`last()`).
+	const { HZ, game, WALL } = R;
+	const friends = [{ id: "pA", bot: false }, { id: "pB", bot: false }, { id: "b1", bot: true }];
+	const walls = (v) => [...(v.grid ?? "")].filter((x) => x === String(WALL)).length;
+	let rules = game({ isHost: (id) => id === "pA" });
+	rules.init({ seats: friends, opts: {}, seed: 3, match: 0 });
+	let v = rules.view({ seat: "pA" });
+	check("friends' first round: the setup, obstacles off", v.phase === "setup" && v.obstacles === false && walls(v) === 0, JSON.stringify({ phase: v.phase, o: v.obstacles }));
+	for (let i = 0; i < 100; i++) rules.tick({ inputs: {}, dt: 1 / HZ });
+	check("…the countdown waits for START", rules.view({ seat: null }).countdown === 4 && !rules.view({ seat: null }).racing);
+	check("…only the host sets it up", typeof rules.apply({ action: { obstacles: true }, by: "pB" }) === "string");
+	check("…the host turns obstacles on", rules.apply({ action: { obstacles: true }, by: "pA" }) === undefined && rules.view({ seat: null }).obstacles === true);
+	v = rules.view({ seat: null });
+	check("…and the blocks show on the arena at once", walls(v) >= 12, `${walls(v)}`);
+	check("…off again, and they go", rules.apply({ action: { obstacles: false }, by: "pA" }) === undefined && walls(rules.view({ seat: null })) === 0);
+	rules.apply({ action: { obstacles: true }, by: "pA" });
+	check("…START", rules.apply({ action: { start: true }, by: "pA" }) === undefined && rules.view({ seat: null }).phase === "play");
+	check("…steering is still input, not a move", typeof rules.apply({ action: { d: "N" }, by: "pA" }) === "string");
+	// A rider into a block crashes, as into any wall.
+	const grid0 = rules.view({ seat: null }).grid;
+	check("a block is a wall to the bots' search", R.botDirection(Uint8Array.from(grid0, Number), { c: 0, r: 0, dir: "E" }) !== undefined);
+	check("…the next game is picked only once this one is over", typeof rules.setNext({ obstacles: false }) === "string");
+	// Play it out, then PLAY AGAIN: straight in, obstacles still on, new blocks.
+	const inputs = {};
+	for (let i = 0; i < 6000 && !rules.view({ seat: null }).decided; i++) {
+		const b = rules.bot({ seat: "b1" });
+		if (b) inputs.b1 = b;
+		rules.tick({ inputs, dt: 1 / HZ });
+	}
+	check("the round with obstacles ends", rules.view({ seat: null }).decided);
+	const next = rules.nextGame();
+	check("the end: the next game is this one's (obstacles)", next.obstacles === true, JSON.stringify(next));
+	check("…CHANGE: an open arena next", rules.setNext({ obstacles: false }) === undefined && rules.nextGame().obstacles === false);
+	rules.init({ seats: friends, opts: {}, seed: 4, match: 1 });
+	v = rules.view({ seat: null });
+	check("PLAY AGAIN: straight in, with the next game's pick", v.phase === "play" && v.obstacles === false && walls(v) === 0, JSON.stringify({ phase: v.phase, o: v.obstacles }));
+	// One person with bots: straight in, on the options kept on the phone.
+	rules = game({ last: () => ({ obstacles: true }) });
+	rules.init({ seats: [{ id: "pA", bot: false }, { id: "b1", bot: true }], opts: {}, seed: 5, match: 0 });
+	v = rules.view({ seat: null });
+	check("one person with bots: no setup, the phone's last options (obstacles)", v.phase === "play" && v.obstacles === true && walls(v) >= 12, JSON.stringify({ phase: v.phase, o: v.obstacles }));
+	rules = game();
+	rules.init({ seats: [{ id: "pA", bot: false }], opts: {}, seed: 5, match: 0 });
+	v = rules.view({ seat: null });
+	check("alone, nothing kept: no setup, an open arena", v.phase === "play" && v.obstacles === false && walls(v) === 0);
+	// A handover during the setup keeps it.
+	rules = game({ isHost: () => true });
+	rules.init({ seats: friends, opts: {}, seed: 6, match: 0 });
+	rules.apply({ action: { obstacles: true }, by: "pA" });
+	const heir = game({ isHost: () => true });
+	heir.restore({ snapshot: JSON.parse(JSON.stringify(rules.snapshot())) });
+	v = heir.view({ seat: null });
+	check("the heir keeps the setup and its pick", v.phase === "setup" && v.obstacles === true && walls(v) >= 12, JSON.stringify({ phase: v.phase, o: v.obstacles }));
+	check("someone leaving during the setup leaves the table", heir.leave({ seat: "pB" }) === true && heir.view({ seat: null }).riders.length === 2);
+}
+
 console.log(failures ? `\n${failures} failing\n` : "\nall passing\n");
 process.exit(failures ? 1 : 0);

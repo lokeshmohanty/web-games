@@ -50,6 +50,90 @@
 	const idx = (c, r) => r * COLS + c;
 	const inBounds = (c, r) => c >= 0 && c < COLS && r >= 0 && r < ROWS;
 
+	// ------------------------------------------------------------ variety
+	//
+	// Lokesh, 2026-11-24: some randomness in every round, all of it dealt from
+	// the round's `seed` (docs/sdk-v2.md "Managed state"), so a round replays.
+
+	/** A small seeded generator (mulberry32) whose whole state is one number, so it travels in a snapshot. */
+	function rng(seed) {
+		let a = seed >>> 0;
+		const next = () => {
+			a = (a + 0x6d2b79f5) >>> 0;
+			let t = a;
+			t = Math.imul(t ^ (t >>> 15), t | 1);
+			t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+			return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+		};
+		return { next, int: (lo, hi) => lo + Math.floor(next() * (hi - lo + 1)), state: () => a };
+	}
+
+	/**
+	 * Which spawn each of `n` seats takes: the first n spawns, in a shuffled
+	 * order. Only the order changes — n riders still use the n spawns designed
+	 * for n — so the rules above (offset, never a mirror) hold for every deal.
+	 */
+	function spawnOrder(n, r) {
+		const order = Array.from({ length: n }, (_, i) => i % SPAWNS.length);
+		for (let i = order.length - 1; i > 0; i--) {
+			const j = r.int(0, i);
+			[order[i], order[j]] = [order[j], order[i]];
+		}
+		return order;
+	}
+
+	// The "Obstacles" option: a few blocks of wall on the arena from the start,
+	// in their own wall value (riders are 1–8). Kept clear of every spawn's
+	// lane — the spawn, the cells round it and the first 12 cells ahead, a cell
+	// either side — so nobody starts facing one. Five or six blocks of 2–5
+	// cells: something to steer round and to trap a rival against, not a maze.
+	const WALL = 9;
+	const LANE = 12;
+	const lanes = (() => {
+		const out = new Set();
+		for (const sp of SPAWNS) {
+			const [dc, dr] = STEP[sp.d];
+			for (let k = -1; k <= LANE; k++)
+				for (let w = -1; w <= 1; w++) {
+					const c = sp.c + dc * k + (dr ? w : 0);
+					const r = sp.r + dr * k + (dc ? w : 0);
+					if (inBounds(c, r)) out.add(idx(c, r));
+				}
+		}
+		return out;
+	})();
+	const SHAPES = [
+		[[0, 0], [1, 0], [0, 1], [1, 1]], // a square
+		[[0, 0], [1, 0], [2, 0], [3, 0]], // a bar across
+		[[0, 0], [0, 1], [0, 2], [0, 3]], // a bar down
+		[[0, 0], [1, 0], [2, 0], [0, 1], [0, 2]], // an L
+		[[0, 0], [1, 0], [2, 0], [1, 1], [1, 2]], // a T
+	];
+	/** The blocks for one round, as cell indices: from a seed (a number) or a generator. */
+	function obstaclesFor(from) {
+		const r = typeof from === "number" ? rng(from ^ 0x0b57ac1e) : from;
+		const blocks = r.int(5, 6);
+		const cells = new Set();
+		for (let placed = 0, tries = 0; placed < blocks && tries < 200; tries++) {
+			const shape = SHAPES[r.int(0, SHAPES.length - 1)];
+			const c0 = r.int(2, COLS - 6);
+			const r0 = r.int(2, ROWS - 6);
+			const at = shape.map(([dc, dr]) => idx(c0 + dc, r0 + dr));
+			// Clear of the lanes, and of other blocks by a cell, so no two join
+			// into a pocket a rider could be sealed in from the off.
+			const near = (i) => {
+				const c = i % COLS;
+				const rr = (i - c) / COLS;
+				for (let dc = -1; dc <= 1; dc++) for (let dr = -1; dr <= 1; dr++) if (cells.has(idx(c + dc, rr + dr))) return true;
+				return false;
+			};
+			if (at.some((i) => lanes.has(i) || near(i))) continue;
+			for (const i of at) cells.add(i);
+			placed++;
+		}
+		return [...cells].sort((a, b) => a - b);
+	}
+
 	/**
 	 * How much open space a rider can still reach from a cell.
 	 *
@@ -263,22 +347,51 @@
 	const reversal = (a, b) => ORDER.indexOf(a) === (ORDER.indexOf(b) + 2) % 4;
 	const gridText = (grid) => Array.from(grid).join("");
 
-	/** The round as managed rules. Time is the tick's `dt`: no clock is read. */
-	function game() {
+	/** The options a round can be played with; anything else is dropped. */
+	const cleanOpts = (o) => ({ obstacles: o?.obstacles === true });
+
+	/**
+	 * The round as managed rules. Time is the tick's `dt`: no clock is read.
+	 *
+	 * Its one option, "Obstacles", is asked before the first round only
+	 * (Lokesh, 2026-11-23, as Ludo): friends' first round opens on the setup,
+	 * the host's to change; PLAY AGAIN goes straight in with it; one person,
+	 * alone or with bots, goes straight in with the options last played on
+	 * their phone. At the end the host's page offers "Next game: … · CHANGE"
+	 * (`nextGame()` / `setNext()`). `isHost(id)`: who may set it up (the page
+	 * passes the party's host; tests leave it open). `last()`: the options
+	 * kept on the host's phone, or null.
+	 */
+	function game({ isHost = () => true, last = () => null } = {}) {
 		let s = null;
 		let grid = new Uint8Array(COLS * ROWS);
 
-		/** A new round on the same seats; wins carry over. */
+		/** Paint the riders and, with the option on, the round's blocks onto a fresh grid. */
+		function paint() {
+			grid = new Uint8Array(COLS * ROWS);
+			if (s.opts.obstacles) for (const i of s.blocks) grid[i] = WALL;
+			s.riders.forEach((r, i) => (grid[idx(r.c, r.r)] = i + 1));
+		}
+
+		/** A new round on the same seats; wins carry over. The spawns and the blocks come from the round's generator. */
 		function newRound(seats) {
+			const r = rng(s?.rng ?? 0);
+			const order = spawnOrder(seats.length, r);
+			const blocks = obstaclesFor(r);
 			s = {
 				round: (s?.round ?? 0) + 1, // rounds started in this run
+				phase: s?.phase ?? "play", // "setup" (the first round among friends) | "play"
+				opts: s?.opts ?? cleanOpts(null),
+				next: s?.next ?? null, // the options picked at the end, for PLAY AGAIN (setNext)
+				rng: r.state(),
+				blocks,
 				riders: seats.map((p, i) => ({
 					id: p.id,
 					bot: !!p.bot,
-					...SPAWNS[i % SPAWNS.length],
-					dir: SPAWNS[i % SPAWNS.length].d,
+					...SPAWNS[order[i]],
+					dir: SPAWNS[order[i]].d,
 					alive: true,
-					wins: s?.riders.find((r) => r.id === p.id)?.wins ?? 0,
+					wins: s?.riders?.find((x) => x.id === p.id)?.wins ?? 0,
 					pending: null,
 					lastN: null,
 				})),
@@ -293,8 +406,7 @@
 				raceMs: 0, // race time ridden, step by step
 			};
 			for (const r of s.riders) delete r.d;
-			grid = new Uint8Array(COLS * ROWS);
-			s.riders.forEach((r, i) => (grid[idx(r.c, r.r)] = i + 1));
+			paint();
 		}
 
 		function endRound(winnerId) {
@@ -325,15 +437,40 @@
 		const stepDue = () => s.racing && s.acc + 1000 / HZ >= s.tickMs;
 
 		return {
-			init({ seats }) {
+			init({ seats, seed, match }) {
+				const prev = s;
+				const people = seats.filter((p) => !p.bot).length;
+				let saved = null;
+				try {
+					// PLAY AGAIN: the options picked for the next game at the end, else this one's.
+					saved = prev ? (prev.next ?? prev.opts) : last();
+				} catch {}
+				const straight = prev ? (match ?? 0) > 0 : people <= 1;
+				s = prev ? { ...prev, phase: straight ? "play" : "setup", opts: cleanOpts(saved), next: null } : { phase: straight ? "play" : "setup", opts: cleanOpts(saved), next: null };
+				s.rng = Math.abs(Math.floor(Number(seed) || 0)) ^ 0x11c7c1e5;
 				newRound(seats);
 			},
 
-			// Nothing to apply: steering is input, and the round ends itself.
-			apply: () => "steer with input",
+			// Steering is input, and the round ends itself. The only moves are
+			// the host's, on the setup: the option, and START.
+			apply({ action, by }) {
+				if (s.phase !== "setup") return "steer with input";
+				if (!isHost(by)) return "the host sets up the game";
+				const a = action ?? {};
+				if (typeof a.obstacles === "boolean") {
+					s.opts = cleanOpts({ ...s.opts, obstacles: a.obstacles });
+					paint();
+					return;
+				}
+				if (a.start === true) {
+					s.phase = "play";
+					return;
+				}
+				return "the game has not started";
+			},
 
 			tick({ inputs, dt }) {
-				if (s.decided) return;
+				if (s.decided || s.phase === "setup") return;
 				if (s.countdown > 0) {
 					s.countMs += dt * 1000;
 					if (s.countMs >= COUNT_MS) {
@@ -366,6 +503,8 @@
 
 			view: () => ({
 				round: s.round,
+				phase: s.phase,
+				obstacles: s.opts.obstacles,
 				step: s.step,
 				countdown: s.countdown,
 				racing: s.racing,
@@ -416,6 +555,13 @@
 			/** A rider whose player left the party is out of the round. */
 			leave({ seat }) {
 				const rider = s.riders.find((r) => r.id === seat);
+				// Before the start they simply leave the table.
+				if (rider && s.phase === "setup") {
+					const round = s.round;
+					newRound(s.riders.filter((r) => r !== rider).map((r) => ({ id: r.id, bot: r.bot })));
+					s.round = round;
+					return true;
+				}
 				if (!rider?.alive || s.decided) return false;
 				rider.alive = false;
 				if (s.racing) {
@@ -423,6 +569,20 @@
 					if (alive.length <= 1) endRound(alive[0]?.id ?? null);
 				}
 				return true;
+			},
+
+			/** Not a rule: the next game's options, for the host's page to offer at the end ("Next game: … · CHANGE"). */
+			nextGame: () => ({ ...(s.next ?? s.opts) }),
+			/**
+			 * Not a rule: pick the next game's options, once this round is over
+			 * (the platform takes no moves after the end, so the host's page
+			 * calls this on its own rules, which are the live ones). PLAY AGAIN
+			 * starts with them.
+			 */
+			setNext(o = {}) {
+				if (s.phase !== "play" || !s.decided) return "only once the round is over";
+				if (typeof o.obstacles !== "boolean") return "no such option";
+				s.next = cleanOpts({ ...(s.next ?? s.opts), ...o });
 			},
 
 			snapshot: () => ({ ...s, grid: gridText(grid) }),
@@ -437,6 +597,10 @@
 				s = rest;
 				grid = Uint8Array.from(text ?? "", Number);
 				if (grid.length !== COLS * ROWS) grid = new Uint8Array(COLS * ROWS);
+				s.phase ??= "play"; // a copy from before the setup
+				s.opts ??= cleanOpts(null);
+				s.blocks ??= [];
+				s.rng ??= 0;
 				if (!s.decided) {
 					newRound(s.riders.map((r) => ({ id: r.id, bot: r.bot })));
 				}
@@ -444,5 +608,5 @@
 		};
 	}
 
-	globalThis.lightCycleRules = { COLS, ROWS, ORDER, STEP, SPAWNS, HZ, COUNT_MS, KEY_EVERY, idx, inBounds, openSpace, openNeighbours, distancesFrom, territory, botDirection, advance, survived, game };
+	globalThis.lightCycleRules = { COLS, ROWS, ORDER, STEP, SPAWNS, WALL, HZ, COUNT_MS, KEY_EVERY, idx, inBounds, openSpace, openNeighbours, distancesFrom, territory, botDirection, advance, survived, rng, spawnOrder, obstaclesFor, game };
 })();
