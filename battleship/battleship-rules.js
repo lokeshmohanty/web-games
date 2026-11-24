@@ -218,8 +218,28 @@
 		return pool[Math.floor(rng() * pool.length)];
 	}
 
+	/**
+	 * What the arcade's achievements read (game.json; the arcade's
+	 * docs/platform.md), from the shots everyone saw (`boards`: id → shots at
+	 * them): each player's ships lost, the ships of theirs they sank, shots,
+	 * hits, accuracy, and `complete` — the whole other fleet sunk, not a win
+	 * because the other player left.
+	 */
+	function seatFactsOf(boards, seats) {
+		const at = (id) => boards[id] ?? [];
+		const out = {};
+		for (const id of seats.filter(Boolean)) {
+			const other = seats.find((s) => s && s !== id);
+			const mine = other ? at(other) : [];
+			const hits = mine.filter((s) => s.hit).length;
+			const sunk = new Set(mine.filter((s) => s.sunk).map((s) => s.sunk)).size;
+			out[id] = { lost: new Set(at(id).filter((s) => s.sunk).map((s) => s.sunk)).size, sunk, complete: sunk === FLEET.length, shots: mine.length, hits, accuracy: mine.length ? Math.round((100 * hits) / mine.length) : 0 };
+		}
+		return out;
+	}
+
 	globalThis.battleshipRules = {
 		SIZE, FLEET, FLEET_CELLS, inBounds, key, cellsOf, validateFleet,
-		randomFleet, shipAt, answerShot, fleetSunk, auditAnswers, botTarget,
+		randomFleet, shipAt, answerShot, fleetSunk, auditAnswers, botTarget, seatFactsOf,
 	};
 })();

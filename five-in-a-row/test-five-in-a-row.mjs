@@ -244,5 +244,13 @@ console.log("\nsnapshot and restore");
 	check("…and the snapshot is a copy, not the host's state", v(g).marks.length === 3 && v(heir).marks.length === 4);
 }
 
+console.log("\nfacts for the arcade's achievements");
+{
+	const g = game();
+	g.init({ seats: [{ id: "pA" }, { id: "pB" }], seed: 1, match: 0, first: "pA" });
+	g.leave({ seat: "pB" });
+	check("won because the other left: no line (facts.line 0), so line-gated achievements stay locked", g.result()?.facts?.line === 0 && g.result().ranking[0][0] === "pA", JSON.stringify(g.result()));
+}
+
 console.log(failures ? `\n${failures} check(s) FAILED` : "\nall five-in-a-row checks passed");
 process.exit(failures ? 1 : 0);

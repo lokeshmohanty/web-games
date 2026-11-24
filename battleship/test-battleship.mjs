@@ -268,5 +268,14 @@ function shotsToClear(pick) {
 	check("fifty played-out games all finish and all audit clean", clean === 50, `${clean}/50`);
 }
 
+console.log("\nfacts for the arcade's achievements (seatFactsOf)");
+{
+	const all = R.FLEET.map((f, i) => ({ at: [i, 0], hit: true, sunk: f.id }));
+	const f = R.seatFactsOf({ a: [{ at: [0, 0], hit: false, sunk: null }], b: [...all, { at: [9, 9], hit: false, sunk: null }] }, ["a", "b"]);
+	check("a sank b's whole fleet: complete, with its shots, hits and accuracy", f.a.complete === true && f.a.sunk === R.FLEET.length && f.a.shots === R.FLEET.length + 1 && f.a.hits === R.FLEET.length && f.a.lost === 0 && f.b.complete === false && f.b.lost === R.FLEET.length, JSON.stringify(f));
+	const g = R.seatFactsOf({ a: [], b: [{ at: [0, 0], hit: true, sunk: null }] }, ["a", "b"]);
+	check("a win by the other leaving (one hit, nothing sunk): not complete", g.a.complete === false && g.a.sunk === 0, JSON.stringify(g));
+}
+
 console.log(failures ? `\n${failures} failing\n` : "\nall passing\n");
 process.exit(failures ? 1 : 0);

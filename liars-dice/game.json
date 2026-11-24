@@ -26,7 +26,8 @@
       "of": "facts.dice",
       "best": "max",
       "when": {
-        "won": true
+        "won": true,
+        "facts.finished": true
       }
     }
   ],
@@ -71,6 +72,7 @@
       "glyph": "🔄",
       "when": {
         "won": true,
+        "facts.finished": true,
         "facts.lowest": 1
       }
     },
@@ -81,6 +83,7 @@
       "glyph": "🛡️",
       "when": {
         "won": true,
+        "facts.finished": true,
         "facts.lowest": 5
       }
     },

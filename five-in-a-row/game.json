@@ -31,7 +31,10 @@
       "best": "min",
       "by": "seats",
       "when": {
-        "won": true
+        "won": true,
+        "facts.line": {
+          ">=": 5
+        }
       }
     }
   ],
@@ -64,6 +67,9 @@
       "glyph": "⚡",
       "when": {
         "won": true,
+        "facts.line": {
+          ">=": 5
+        },
         "facts.moves": {
           "<=": 15
         }

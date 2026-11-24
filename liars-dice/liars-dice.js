@@ -189,7 +189,7 @@ function setHud(parts) {
 	}
 }
 
-const { DICE, FACES, bidBeats, raisesAfter, resolveCall, rollDice, botAction, nextOpener } = liarsDiceRules;
+const { DICE, FACES, bidBeats, raisesAfter, resolveCall, rollDice, botAction, nextOpener, seatFactsOf } = liarsDiceRules;
 const PIPS = ["", "⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
 
 // ------------------------------------------------------------------- markup
@@ -283,7 +283,7 @@ function reportOver() {
 	const ranking = over.winner ? [[over.winner], rest].filter((s) => s.length) : [rest];
 	noteDice();
 	// What game.json's achievements and records read (the arcade's docs/platform.md).
-	const seatFacts = Object.fromEntries(seats.map((s) => [s.id, { dice: s.dice, lowest: lowest.by[s.id] ?? s.dice }]));
+	const seatFacts = seatFactsOf(seats, lowest.by, over.finished);
 	if (ranking[0]?.length) arcade.result({ kind: "ffa", match: over.match ?? 1, ranking, seatFacts });
 }
 
@@ -568,7 +568,7 @@ function settleCall() {
 
 	const left = alive();
 	if (left.length <= 1) {
-		endGame(left[0]?.id ?? null);
+		endGame(left[0]?.id ?? null, true); // won on a call
 		return;
 	}
 	pushState();
@@ -576,8 +576,9 @@ function settleCall() {
 	rounds.next();
 }
 
-function endGame(winner) {
-	over = { winner, match: matchNo };
+/** `finished`: won on a call (the arcade's achievements), not because the others left. */
+function endGame(winner, finished = false) {
+	over = { winner, match: matchNo, finished };
 	phase = "over";
 	clearTimeout(botTimer);
 	pushState();

@@ -273,5 +273,19 @@ for (const n of [2, 4, 6]) {
 	check(`${n} bots finish all 10 games, no move refused; the longest took ${longest} turns`, done === 10 && refused === 0, `${done}/10, ${refused} refused`);
 }
 
+console.log("\nfacts for the arcade's achievements: a win by others leaving is not a finish");
+{
+	const g = rigged(["pA", "pB", "pC"], [0, 0, 0]);
+	g.leave({ seat: "pB" });
+	g.leave({ seat: "pC" });
+	const r = g.result();
+	check("won because the others left: home is false", r?.seatFacts?.pA?.home === false, JSON.stringify(r?.seatFacts));
+	const h = rigged(["pA", "pB"], [99, 0]);
+	rollUntil(h);
+	const w = h.result();
+	const first = w.ranking[0][0];
+	check("reached 100: home is true for who got there", w.seatFacts?.[first]?.home === true, JSON.stringify(w.seatFacts));
+}
+
 console.log(failures ? `\n${failures} check(s) FAILED` : "\nall snakes-and-ladders checks passed");
 process.exit(failures ? 1 : 0);

@@ -538,7 +538,9 @@
 				];
 				// What game.json's achievements and records read (the arcade's
 				// docs/platform.md): each player's captures and tokens lost.
-				const seatFacts = Object.fromEntries(s.seats.map((id, i) => [id, { captures: s.captures[i] ?? 0, lost: s.lost?.[id] ?? 0 }]));
+				// `finished`: every token home (in teams, the whole team's) — a win
+				// because the others left is not.
+				const seatFacts = Object.fromEntries(s.seats.map((id, i) => [id, { captures: s.captures[i] ?? 0, lost: s.lost?.[id] ?? 0, finished: teams() ? teamDone(teamOf(i)) : s.done.includes(i) }]));
 				if (teams()) {
 					const score = (t) => s.seats.reduce((sum, _, i) => sum + (teamOf(i) === t ? progress(i) : 0), 0);
 					const members = (t) => s.seats.map((_, i) => i).filter((i) => teamOf(i) === t);

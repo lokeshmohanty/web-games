@@ -142,8 +142,16 @@
 		return { id: ids[at], at };
 	}
 
+	/**
+	 * What the arcade's achievements read (game.json): each player's dice
+	 * left, the fewest they held this game, and `finished` — won on a call,
+	 * not because the others left.
+	 */
+	const seatFactsOf = (seats, lowest, finished) =>
+		Object.fromEntries(seats.map((s) => [s.id, { dice: s.dice, lowest: lowest[s.id] ?? s.dice, finished: !!finished && s.dice > 0 && !s.out }]));
+
 	globalThis.liarsDiceRules = {
 		DICE, FACES, countFace, countAll, validBid, bidBeats, raisesAfter,
-		resolveCall, rollDice, expectedCount, botAction, nextOpener,
+		resolveCall, rollDice, expectedCount, botAction, nextOpener, seatFactsOf,
 	};
 })();

@@ -310,15 +310,8 @@ function reportOver() {
 	const ranking = over.winner
 		? [[over.winner], [loser]].map((s) => s.filter(Boolean)).filter((s) => s.length)
 		: [[a, b].filter(Boolean)];
-	// What game.json's achievements and records read (the arcade's
-	// docs/platform.md), from the shots everyone saw: ships each lost, and
-	// each player's shots, hits and accuracy.
-	const seatFacts = {};
-	for (const id of [a, b].filter(Boolean)) {
-		const mine = shotsAt(opponentOf(id));
-		const hits = mine.filter((s) => s.hit).length;
-		seatFacts[id] = { lost: shotsAt(id).filter((s) => s.sunk).length, shots: mine.length, hits, accuracy: mine.length ? Math.round((100 * hits) / mine.length) : 0 };
-	}
+	// What game.json's achievements and records read (battleship-rules.js seatFactsOf).
+	const seatFacts = battleshipRules.seatFactsOf(boards, [a, b]);
 	if (ranking.length) arcade.result({ kind: "duel", match: over.match ?? 1, ranking, reason: over.reason ?? undefined, seatFacts });
 }
 

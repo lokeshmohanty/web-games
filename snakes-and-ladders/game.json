@@ -31,7 +31,8 @@
       "of": "facts.rolls",
       "best": "min",
       "when": {
-        "won": true
+        "won": true,
+        "facts.home": true
       }
     },
     {
@@ -70,6 +71,7 @@
       "glyph": "🐍",
       "when": {
         "won": true,
+        "facts.home": true,
         "facts.snakes": 0
       }
     },
@@ -91,6 +93,7 @@
       "glyph": "⚡",
       "when": {
         "won": true,
+        "facts.home": true,
         "facts.rolls": {
           "<=": 15
         }

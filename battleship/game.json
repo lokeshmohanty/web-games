@@ -27,7 +27,8 @@
       "of": "facts.shots",
       "best": "min",
       "when": {
-        "won": true
+        "won": true,
+        "facts.complete": true
       }
     },
     {
@@ -36,7 +37,8 @@
       "of": "facts.accuracy",
       "best": "max",
       "when": {
-        "won": true
+        "won": true,
+        "facts.complete": true
       },
       "unit": "%"
     }
@@ -54,10 +56,11 @@
     {
       "id": "flawless",
       "title": "Flawless Fleet",
-      "description": "Win without losing a ship.",
+      "description": "Sink the enemy fleet without losing a ship.",
       "glyph": "🛡️",
       "when": {
         "won": true,
+        "facts.complete": true,
         "facts.lost": 0
       }
     },
@@ -68,6 +71,7 @@
       "glyph": "🎯",
       "when": {
         "won": true,
+        "facts.complete": true,
         "facts.accuracy": {
           ">=": 50
         }
@@ -80,6 +84,7 @@
       "glyph": "⚡",
       "when": {
         "won": true,
+        "facts.complete": true,
         "facts.shots": {
           "<=": 40
         }

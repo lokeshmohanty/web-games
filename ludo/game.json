@@ -90,6 +90,7 @@
       "glyph": "🛡️",
       "when": {
         "won": true,
+        "facts.finished": true,
         "facts.lost": 0
       }
     },
@@ -100,6 +101,7 @@
       "glyph": "🤝",
       "when": {
         "won": true,
+        "facts.finished": true,
         "kind": "teams"
       }
     },

@@ -356,7 +356,8 @@
 					ranking,
 					// Each player's own rolls, snakes and ladders, which game.json's
 					// achievements and records read (the arcade's docs/platform.md).
-					seatFacts: Object.fromEntries(s.seats.filter(Boolean).map((id) => [id, { rolls: 0, snakes: 0, ladders: 0, ...(s.mine?.[id] ?? {}) }])),
+					// `home`: reached 100 (a win because the others left is not).
+					seatFacts: Object.fromEntries(s.seats.map((id, i) => [id, i]).filter(([id]) => id).map(([id, i]) => [id, { rolls: 0, snakes: 0, ladders: 0, ...(s.mine?.[id] ?? {}), home: s.home.includes(i) }])),
 					details: [
 						{ label: "Rolls", value: s.rolls },
 						{ label: "Ladders climbed", value: s.ladders },
