@@ -27,7 +27,8 @@
 // count; several players' on a safe square stand side by side.
 //
 // The art is drawn here from the theme: squares from the surfaces, each arm's
-// start, home column and yard in its seat's colour (the end card's --p1…),
+// start, home column and yard in its seat's colour — its player's pick (the
+// platform's seat colours, as on the end card; seat order on an older shell),
 // safe stars in the ink, and nothing in a colour of its own.
 
 const LR = ludoRules;
@@ -203,7 +204,11 @@ let moves = 0; // events drawn, for the tests
 let drawn = []; // the tokens last drawn, for the tests: { seat, x, y, r, count, square, shared, marks }
 
 const theme = () => arcade.theme;
-const colourOf = (seat) => theme()?.players[seat % 8] ?? "gray"; // theme-exempt: before the theme arrives
+// Each seat's colour, an index into the theme's players: its player's pick,
+// no two alike (sdk/v2/runtime.js seatColors), set on every view.
+let seatCols = [];
+const seatIdx = (seat) => seatCols[seat] ?? seat % 8;
+const colourOf = (seat) => theme()?.players[seatIdx(seat)] ?? "gray"; // theme-exempt: before the theme arrives
 const glows = () => !/,\s*0\)$/.test(theme()?.tokens.glow ?? ", 0)");
 const alpha = (rgba, a) => String(rgba).replace(/,\s*[\d.]+\)$/, `, ${a})`);
 const glyphOf = (seat) => GLYPHS[seat % GLYPHS.length];
@@ -380,7 +385,7 @@ function star(g, x, y, r) {
 /** The board without tokens: yards, squares, starts, stars, home columns and the middle. */
 function drawLayer() {
 	const t = theme();
-	const key = `${canvas.width}:${view.board}:${view.arms.join()}:${rot}:${t.name}:${t.mode}:${t.tokens.surface}:${t.players.join()}`;
+	const key = `${canvas.width}:${view.board}:${view.arms.join()}:${rot}:${t.name}:${t.mode}:${t.tokens.surface}:${t.players.join()}:${view.seats.map((_, i) => seatIdx(i)).join()}`;
 	if (layer && key === layerKey) return layer;
 	layerKey = key;
 	layer = layer ?? document.createElement("canvas");
@@ -833,7 +838,7 @@ function tell(ev, early = false) {
 }
 
 function dieColour(seat) {
-	die.style.borderColor = seat >= 0 ? `var(--p${(seat % 8) + 1})` : "";
+	die.style.borderColor = seat >= 0 ? `var(--p${seatIdx(seat) + 1})` : "";
 }
 
 function renderDie() {
@@ -1210,6 +1215,7 @@ function renderNext() {
 arcade.on("view", ({ state }) => {
 	const before = view;
 	view = state;
+	seatCols = arcade.seatColors?.(state.seats ?? []) ?? [];
 	// The table played, remembered on the host's device for its next card tap.
 	if (state.phase === "play" && arcade.isHost()) {
 		const table = { n: state.seats.length, board: state.board, mode: state.mode };
@@ -1317,6 +1323,7 @@ arcade.debug = () => {
 	const r = canvas.getBoundingClientRect();
 	return {
 		...(view ?? { seats: [], tokens: [], phase: null, over: false }),
+		colors: (view?.seats ?? []).map((_, i) => seatIdx(i)),
 		shown: clone(shown),
 		shownN,
 		moves,

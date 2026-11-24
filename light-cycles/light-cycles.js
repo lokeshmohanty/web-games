@@ -112,9 +112,11 @@ let seq = 0; // numbers each steering press
 const riders = () => view?.riders ?? [];
 const me = () => riders().find((x) => x.id === arcade.party?.self) ?? null;
 const nameOf = (id) => arcade.party?.members.find((m) => m.id === id)?.name ?? "Player";
-// Riders wear the theme's player colours, resolved on this device, so a theme
-// change recolours every trail.
-const colorOf = (i) => arcade.theme?.players[i % 8] ?? "gray"; // theme-exempt: before the theme arrives
+// Riders wear the theme's player colours, each its player's pick (the
+// platform's seat colours, no two alike; seat order on an older shell),
+// resolved on this device, so a theme change recolours every trail.
+let seatCols = [];
+const colorOf = (i) => arcade.theme?.players[seatCols[i] ?? i % 8] ?? "gray"; // theme-exempt: before the theme arrives
 const glows = () => !/,\s*0\)$/.test(arcade.theme?.tokens.glow ?? ", 0)");
 
 // ---------------------------------------------------------------- drawing
@@ -229,15 +231,22 @@ function onView(next) {
 		grid = new Uint8Array(COLS * ROWS);
 	}
 	view = next;
+	const cols = arcade.seatColors?.(next.riders.map((r) => r.id)) ?? [];
+	const recoloured = cols.join() !== seatCols.join();
+	seatCols = cols;
 	if (next.grid) {
 		grid = Uint8Array.from(next.grid, Number);
 		repaintTrails();
-	} else if (next.step !== lastStep) {
-		next.riders.forEach((rider, i) => {
-			if (!rider.alive) return;
-			grid[idx(rider.c, rider.r)] = i + 1;
-			paintCell(rider.c, rider.r, colorOf(i));
-		});
+	} else {
+		// Someone picked another colour: every wall of theirs changes too.
+		if (recoloured) repaintTrails();
+		if (next.step !== lastStep) {
+			next.riders.forEach((rider, i) => {
+				if (!rider.alive) return;
+				grid[idx(rider.c, rider.r)] = i + 1;
+				paintCell(rider.c, rider.r, colorOf(i));
+			});
+		}
 	}
 	lastStep = next.step;
 	render();
@@ -299,6 +308,7 @@ arcade.debug = () => ({
 	winner: view?.decided ? view.winner : undefined,
 	tickMs: view?.tickMs ?? 100,
 	riders: riders().map((r) => ({ ...r })),
+	colors: riders().map((_, i) => seatCols[i] ?? i % 8),
 	walls: grid.reduce((n, v) => n + (v ? 1 : 0), 0),
 	mine: me()?.id ?? null,
 });

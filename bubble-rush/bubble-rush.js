@@ -236,7 +236,10 @@ function colour(name, a = 1) {
 function colourOf(id) {
 	if (view?.mode === "teams") return teamOf(id) === "B" ? "accent2" : "accent";
 	const i = seatIndex(id);
-	return i < 0 ? "ink2" : i;
+	if (i < 0) return "ink2";
+	// Free-for-all: the player's own pick (the platform's seat colours, no
+	// two alike; seat order on an older shell).
+	return arcade.seatColors?.(seats().map(([sid]) => sid))[i] ?? i;
 }
 /** A bubble's own colour: its team's in TEAMS, its size's in free-for-all. */
 function bubbleColour(b) {

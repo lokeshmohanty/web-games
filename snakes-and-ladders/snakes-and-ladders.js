@@ -20,7 +20,8 @@
 //
 // The art is drawn here from the theme: squares from the surfaces, ladders in
 // the theme's "good", snakes in its "danger", "warn" and second accent, tokens
-// in the player colours (the end card's --p1…).
+// in the player colours, each its player's pick (the platform's seat colours,
+// as on the end card; seat order on an older shell).
 
 const SL = snakesAndLaddersRules;
 // A bot rolls once the last move has had time to play: the platform's own
@@ -115,7 +116,10 @@ let raf = 0;
 let moves = 0; // moves drawn, for the tests
 
 const theme = () => arcade.theme;
-const colourOf = (seat) => theme()?.players[seat % 8] ?? "gray"; // theme-exempt: before the theme arrives
+// Each seat's colour, an index into the theme's players: its player's pick,
+// no two alike (sdk/v2/runtime.js seatColors), set on every view.
+let seatCols = [];
+const colourOf = (seat) => theme()?.players[seatCols[seat] ?? seat % 8] ?? "gray"; // theme-exempt: before the theme arrives
 const glows = () => !/,\s*0\)$/.test(theme()?.tokens.glow ?? ", 0)");
 const alpha = (rgba, a) => String(rgba).replace(/,\s*[\d.]+\)$/, `, ${a})`);
 const nameOf = (seat) => {
@@ -603,6 +607,7 @@ addEventListener("keydown", (e) => {
 arcade.on("view", ({ state }) => {
 	const before = view;
 	view = state;
+	seatCols = arcade.seatColors?.(state.seats ?? []) ?? [];
 	if (!before || before.match !== state.match || !state.last || state.last.n < shownN) {
 		// A new match, a first view or a jump back: draw it as it stands.
 		queue = [];
@@ -658,6 +663,7 @@ arcade.init.then(layout);
 /** For the tests: the view, what is drawn (`shown`, `moves`), whether a move is playing, the board's cell in CSS px. */
 arcade.debug = () => ({
 	...(view ?? { seats: [], pos: [], winner: null }),
+	colors: (view?.seats ?? []).map((_, i) => seatCols[i] ?? i % 8),
 	shown: [...shown],
 	shownN,
 	moves,
