@@ -256,11 +256,13 @@
 			result() {
 				if (s.winner === null) return null;
 				const all = s.seats.filter(Boolean);
-				if (s.winner < 0) return { kind: "ffa", ranking: [all], details: [{ label: "Marks placed", value: s.moves }] };
+				// What game.json's achievements and records read (the arcade's docs/platform.md).
+				const facts = { moves: s.moves, line: s.line?.length ?? 0 };
+				if (s.winner < 0) return { kind: "ffa", ranking: [all], details: [{ label: "Marks placed", value: s.moves }], facts };
 				const rest = all.filter((id) => id !== s.seats[s.winner]);
 				const details = [{ label: "Marks placed", value: s.moves }];
 				if (s.line) details.push({ label: "Winning line", value: `${s.line.length} in a row` });
-				return { kind: "ffa", ranking: rest.length ? [[s.seats[s.winner]], rest] : [[s.seats[s.winner]]], details };
+				return { kind: "ffa", ranking: rest.length ? [[s.seats[s.winner]], rest] : [[s.seats[s.winner]]], details, facts };
 			},
 
 			/** The host chose SKIP TURN for someone away: the turn passes on. */

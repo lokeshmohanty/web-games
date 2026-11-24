@@ -267,13 +267,24 @@ let draftFace = 2;
 let draftCount = 1;
 let botTimer = null;
 
+// The fewest dice each player has held this game, as this phone saw it: a
+// win from one die is a comeback (game.json's achievements).
+let lowest = { match: null, by: {} };
+function noteDice() {
+	if (lowest.match !== matchNo) lowest = { match: matchNo, by: {} };
+	for (const s of seats) if (s.dice > 0) lowest.by[s.id] = Math.min(lowest.by[s.id] ?? DICE, s.dice);
+}
+
 /** Tell the platform how it ended: the last cup standing, then the rest. */
 function reportOver() {
 	if (!over || reportedMatch === over.match) return;
 	reportedMatch = over.match;
 	const rest = seats.map((s) => s.id).filter((id) => id !== over.winner);
 	const ranking = over.winner ? [[over.winner], rest].filter((s) => s.length) : [rest];
-	if (ranking[0]?.length) arcade.result({ kind: "ffa", match: over.match ?? 1, ranking });
+	noteDice();
+	// What game.json's achievements and records read (the arcade's docs/platform.md).
+	const seatFacts = Object.fromEntries(seats.map((s) => [s.id, { dice: s.dice, lowest: lowest.by[s.id] ?? s.dice }]));
+	if (ranking[0]?.length) arcade.result({ kind: "ffa", match: over.match ?? 1, ranking, seatFacts });
 }
 
 const seatOf = (id) => seats.find((s) => s.id === id) ?? null;
@@ -305,6 +316,7 @@ const publicState = () => ({
  * silently refused as illegal.
  */
 function pushState(to) {
+	noteDice();
 	if (isHost()) stateCh.send(publicState(), to);
 	render();
 }
@@ -318,6 +330,7 @@ const stateCh = arcade.channel("ldState", (msg, from) => {
 	if (msg.opener) opener = msg.opener;
 	digests = msg.digests ?? {};
 	matchNo = msg.match ?? matchNo;
+	noteDice();
 	// Back from a reload: the cup this round was committed to, if the digest
 	// on the table is its. Without it there is nothing to bid from and
 	// nothing to open, and an unopened cup reads as cheating.

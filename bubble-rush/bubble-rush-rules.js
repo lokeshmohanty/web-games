@@ -430,7 +430,10 @@
 			} else {
 				if (!was) s.pops++;
 				s.stats.popped[id] = (s.stats.popped[id] ?? 0) + 1;
-				if (!was && b.k === "g") s.stats.golden++;
+				if (!was && b.k === "g") {
+					s.stats.golden++;
+					s.stats.goldenBy = { ...(s.stats.goldenBy ?? {}), [id]: (s.stats.goldenBy?.[id] ?? 0) + 1 };
+				}
 				if (!was && got.kind === "deny") s.stats.denied++;
 				if (s.streaks[id] > (s.stats.best[id] ?? 0)) s.stats.best[id] = s.streaks[id];
 			}
@@ -528,7 +531,7 @@
 					events: [], // the last few pops, for effects on every phone
 					seq: 0,
 					pops: 0,
-					stats: { popped: {}, best: {}, bombs: {}, misses: {}, golden: 0, denied: 0 },
+					stats: { popped: {}, best: {}, bombs: {}, misses: {}, golden: 0, goldenBy: {}, denied: 0 },
 					botDue: {},
 					botN: {},
 					ack: {}, // per player: the number of their last tap taken
@@ -637,6 +640,15 @@
 				const total = (o) => Object.values(o).reduce((a, b) => a + b, 0);
 				const bestId = ids.reduce((a, id) => ((s.stats.best[id] ?? 0) > (s.stats.best[a] ?? 0) ? id : a), ids[0]);
 				const best = s.stats.best[bestId] ?? 0;
+				// What game.json's achievements and records read (the arcade's
+				// docs/platform.md): each player's own round.
+				const seatFacts = Object.fromEntries(
+					ids.map((id) => [
+						id,
+						{ popped: s.stats.popped[id] ?? 0, streak: s.stats.best[id] ?? 0, bombs: s.stats.bombs[id] ?? 0, misses: s.stats.misses[id] ?? 0, golden: s.stats.goldenBy?.[id] ?? 0 },
+					]),
+				);
+				const facts = { mode: s.mode };
 				const details = [
 					{ label: "Mode", value: modeName(s.mode) },
 					{ label: "Bubbles popped", value: s.pops },
@@ -647,7 +659,7 @@
 				if (s.alone && ids.length === 1) {
 					details.push({ label: "Misses", value: total(s.stats.misses) });
 					const mine = scores[ids[0]];
-					return { kind: "coop", ranking: [ids], scores: { [ids[0]]: Math.max(0, mine) }, title: `${mine} POINTS`, details };
+					return { kind: "coop", ranking: [ids], scores: { [ids[0]]: Math.max(0, mine) }, title: `${mine} POINTS`, details, facts, seatFacts };
 				}
 				if (s.mode === "teams") {
 					const ts = teamScores(s.scores, sideAll("A"), sideAll("B"));
@@ -669,10 +681,10 @@
 					const title = !first ? "A TIE" : here.A.length && here.B.length ? null : `TEAM ${first} WINS`;
 					// Every score that counted for a side, leavers' too (one may share the tied place).
 					const all = Object.fromEntries([...sideAll("A"), ...sideAll("B")].map((id) => [id, s.scores[id] ?? 0]));
-					return { kind: "teams", ranking: r, scores: all, ...(title ? { title } : {}), details };
+					return { kind: "teams", ranking: r, scores: all, ...(title ? { title } : {}), details, facts, seatFacts };
 				}
 				const r = ranking(s.scores, ids);
-				return { kind: "ffa", ranking: r, scores, ...(r.length === 1 && ids.length > 1 ? { title: "A TIE" } : {}), details };
+				return { kind: "ffa", ranking: r, scores, ...(r.length === 1 && ids.length > 1 ? { title: "A TIE" } : {}), details, facts, seatFacts };
 			},
 
 			/**
