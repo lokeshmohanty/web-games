@@ -289,6 +289,7 @@
 					rolls: 0,
 					snakes: 0,
 					ladders: 0,
+					mine: {}, // id → { rolls, snakes, ladders }: each player's own, for achievements
 				};
 			},
 
@@ -308,6 +309,8 @@
 				s.rolls++;
 				if (move.via === "snake") s.snakes++;
 				if (move.via === "ladder") s.ladders++;
+				const m = s.mine?.[by] ?? { rolls: 0, snakes: 0, ladders: 0 };
+				s.mine = { ...(s.mine ?? {}), [by]: { rolls: m.rolls + 1, snakes: m.snakes + (move.via === "snake" ? 1 : 0), ladders: m.ladders + (move.via === "ladder" ? 1 : 0) } };
 				let place = null;
 				if (move.to === SIZE) {
 					s.home.push(me);
@@ -351,6 +354,10 @@
 				return {
 					kind: "ffa",
 					ranking,
+					// Each player's own rolls, snakes and ladders, which game.json's
+					// achievements and records read (the arcade's docs/platform.md).
+					// `home`: reached 100 (a win because the others left is not).
+					seatFacts: Object.fromEntries(s.seats.map((id, i) => [id, i]).filter(([id]) => id).map(([id, i]) => [id, { rolls: 0, snakes: 0, ladders: 0, ...(s.mine?.[id] ?? {}), home: s.home.includes(i) }])),
 					details: [
 						{ label: "Rolls", value: s.rolls },
 						{ label: "Ladders climbed", value: s.ladders },

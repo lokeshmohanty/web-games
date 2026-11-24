@@ -24,6 +24,108 @@
     "party"
   ],
   "preview": "preview.gif",
+  "records": [
+    {
+      "id": "captures",
+      "title": "Most captures in a game",
+      "of": "facts.captures",
+      "best": "max"
+    },
+    {
+      "id": "captured",
+      "title": "Tokens sent home in all",
+      "of": "facts.captures",
+      "best": "sum"
+    }
+  ],
+  "achievements": [
+    {
+      "id": "first-win",
+      "title": "First Win",
+      "description": "Win a game of Ludo.",
+      "glyph": "🏁",
+      "when": {
+        "won": true
+      }
+    },
+    {
+      "id": "beat-3",
+      "title": "Beat 3 Bots",
+      "description": "Win against 3 or more bots.",
+      "glyph": "🤖",
+      "when": {
+        "won": true,
+        "bots": {
+          ">=": 3
+        }
+      }
+    },
+    {
+      "id": "full-board",
+      "title": "Full Board",
+      "description": "Win against 5 bots on the six-player board.",
+      "glyph": "👑",
+      "when": {
+        "won": true,
+        "bots": {
+          ">=": 5
+        }
+      }
+    },
+    {
+      "id": "hunter",
+      "title": "Hunter",
+      "description": "Send 3 tokens home in one game.",
+      "glyph": "🎯",
+      "when": {
+        "facts.captures": {
+          ">=": 3
+        }
+      }
+    },
+    {
+      "id": "untouchable",
+      "title": "Untouchable",
+      "description": "Win without losing a token.",
+      "glyph": "🛡️",
+      "when": {
+        "won": true,
+        "facts.finished": true,
+        "facts.lost": 0
+      }
+    },
+    {
+      "id": "team-player",
+      "title": "Team Player",
+      "description": "Win a teams game.",
+      "glyph": "🤝",
+      "when": {
+        "won": true,
+        "facts.finished": true,
+        "kind": "teams"
+      }
+    },
+    {
+      "id": "hat-trick",
+      "title": "Hat Trick",
+      "description": "Win 3 games in a row.",
+      "glyph": "🎩",
+      "when": {
+        "won": true
+      },
+      "streak": 3
+    },
+    {
+      "id": "ten-wins",
+      "title": "Ten Wins",
+      "description": "Win 10 games.",
+      "glyph": "🏆",
+      "when": {
+        "won": true
+      },
+      "count": 10
+    }
+  ],
   "license": "MIT",
   "author": "lokeshmohanty",
   "repo": "https://github.com/lokeshmohanty/web-games"

@@ -27,6 +27,126 @@
     "party"
   ],
   "preview": "preview.gif",
+  "records": [
+    {
+      "id": "score",
+      "title": "Best score",
+      "of": "score",
+      "best": "max",
+      "unit": "points"
+    },
+    {
+      "id": "streak",
+      "title": "Best streak",
+      "of": "facts.streak",
+      "best": "max",
+      "unit": "pops"
+    },
+    {
+      "id": "golden",
+      "title": "Golden bubbles in all",
+      "of": "facts.golden",
+      "best": "sum"
+    }
+  ],
+  "achievements": [
+    {
+      "id": "first-round",
+      "title": "First Round",
+      "description": "Play a round of Bubble Rush.",
+      "glyph": "🫧"
+    },
+    {
+      "id": "chain-5",
+      "title": "×5 Chain",
+      "description": "Pop 17 in a row to reach the ×5 multiplier.",
+      "glyph": "🔗",
+      "when": {
+        "facts.streak": {
+          ">=": 17
+        }
+      }
+    },
+    {
+      "id": "golden-touch",
+      "title": "Golden Touch",
+      "description": "Catch a golden bubble.",
+      "glyph": "🌟",
+      "when": {
+        "facts.golden": {
+          ">=": 1
+        }
+      }
+    },
+    {
+      "id": "gold-rush",
+      "title": "Gold Rush",
+      "description": "Catch 25 golden bubbles in all.",
+      "glyph": "🏅",
+      "total": {
+        "of": "facts.golden",
+        "atLeast": 25
+      }
+    },
+    {
+      "id": "bomb-free",
+      "title": "Bomb Dodger",
+      "description": "Pop 30 bubbles in a round without hitting a bomb.",
+      "glyph": "💣",
+      "when": {
+        "facts.bombs": 0,
+        "facts.popped": {
+          ">=": 30
+        }
+      }
+    },
+    {
+      "id": "sharpshooter",
+      "title": "Sharpshooter",
+      "description": "Pop 30 bubbles in a round without a miss.",
+      "glyph": "🎯",
+      "when": {
+        "facts.misses": 0,
+        "facts.popped": {
+          ">=": 30
+        }
+      }
+    },
+    {
+      "id": "points-1000",
+      "title": "1,000 Points",
+      "description": "Score 1,000 points in a round.",
+      "glyph": "💯",
+      "when": {
+        "score": {
+          ">=": 1000
+        }
+      }
+    },
+    {
+      "id": "points-2500",
+      "title": "2,500 Points",
+      "description": "Score 2,500 points in a round.",
+      "glyph": "🔥",
+      "when": {
+        "score": {
+          ">=": 2500
+        }
+      }
+    },
+    {
+      "id": "beat-3",
+      "title": "Beat 3 Bots",
+      "description": "Win a round against 3 or more bots.",
+      "glyph": "🤖",
+      "when": {
+        "won": true,
+        "bots": {
+          ">=": 3
+        }
+      }
+    }
+  ],
   "license": "MIT",
   "author": "lokeshmohanty",
   "repo": "https://github.com/lokeshmohanty/web-games"

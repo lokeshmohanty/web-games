@@ -20,6 +20,107 @@
     "strategy"
   ],
   "preview": "preview.gif",
+  "records": [
+    {
+      "id": "fewest",
+      "title": "Fewest shots to win",
+      "of": "facts.shots",
+      "best": "min",
+      "when": {
+        "won": true,
+        "facts.complete": true
+      }
+    },
+    {
+      "id": "accuracy",
+      "title": "Best accuracy in a win",
+      "of": "facts.accuracy",
+      "best": "max",
+      "when": {
+        "won": true,
+        "facts.complete": true
+      },
+      "unit": "%"
+    }
+  ],
+  "achievements": [
+    {
+      "id": "first-win",
+      "title": "First Win",
+      "description": "Sink the whole enemy fleet.",
+      "glyph": "🏁",
+      "when": {
+        "won": true
+      }
+    },
+    {
+      "id": "flawless",
+      "title": "Flawless Fleet",
+      "description": "Sink the enemy fleet without losing a ship.",
+      "glyph": "🛡️",
+      "when": {
+        "won": true,
+        "facts.complete": true,
+        "facts.lost": 0
+      }
+    },
+    {
+      "id": "sharpshooter",
+      "title": "Sharpshooter",
+      "description": "Win with half your shots or more on target.",
+      "glyph": "🎯",
+      "when": {
+        "won": true,
+        "facts.complete": true,
+        "facts.accuracy": {
+          ">=": 50
+        }
+      }
+    },
+    {
+      "id": "quick-draw",
+      "title": "Quick Draw",
+      "description": "Win in 40 shots or fewer.",
+      "glyph": "⚡",
+      "when": {
+        "won": true,
+        "facts.complete": true,
+        "facts.shots": {
+          "<=": 40
+        }
+      }
+    },
+    {
+      "id": "hat-trick",
+      "title": "Hat Trick",
+      "description": "Win 3 games in a row.",
+      "glyph": "🎩",
+      "when": {
+        "won": true
+      },
+      "streak": 3
+    },
+    {
+      "id": "five-in-a-row",
+      "title": "5 in a Row",
+      "description": "Win 5 games in a row.",
+      "glyph": "🔥",
+      "when": {
+        "won": true
+      },
+      "streak": 5
+    },
+    {
+      "id": "ten-wins",
+      "title": "Ten Wins",
+      "description": "Win 10 games.",
+      "glyph": "🏆",
+      "when": {
+        "won": true
+      },
+      "count": 10
+    }
+  ],
   "license": "MIT",
   "author": "lokeshmohanty",
   "repo": "https://github.com/lokeshmohanty/web-games"

@@ -23,6 +23,101 @@
     "strategy"
   ],
   "preview": "preview.gif",
+  "records": [
+    {
+      "id": "fewest",
+      "title": "Fewest marks to win",
+      "of": "facts.moves",
+      "best": "min",
+      "by": "seats",
+      "when": {
+        "won": true,
+        "facts.line": {
+          ">=": 5
+        }
+      }
+    }
+  ],
+  "achievements": [
+    {
+      "id": "first-win",
+      "title": "First Win",
+      "description": "Win a game of Five in a Row.",
+      "glyph": "🏁",
+      "when": {
+        "won": true
+      }
+    },
+    {
+      "id": "beat-3",
+      "title": "Beat 3 Bots",
+      "description": "Win against 3 bots.",
+      "glyph": "🤖",
+      "when": {
+        "won": true,
+        "bots": {
+          ">=": 3
+        }
+      }
+    },
+    {
+      "id": "quick-five",
+      "title": "Quick Five",
+      "description": "Win with 15 marks or fewer on the board.",
+      "glyph": "⚡",
+      "when": {
+        "won": true,
+        "facts.line": {
+          ">=": 5
+        },
+        "facts.moves": {
+          "<=": 15
+        }
+      }
+    },
+    {
+      "id": "six",
+      "title": "Six in a Row",
+      "description": "Win with a line of six or more.",
+      "glyph": "📏",
+      "when": {
+        "won": true,
+        "facts.line": {
+          ">=": 6
+        }
+      }
+    },
+    {
+      "id": "hat-trick",
+      "title": "Hat Trick",
+      "description": "Win 3 games in a row.",
+      "glyph": "🎩",
+      "when": {
+        "won": true
+      },
+      "streak": 3
+    },
+    {
+      "id": "five-in-a-row",
+      "title": "5 in a Row",
+      "description": "Win 5 games in a row.",
+      "glyph": "🔥",
+      "when": {
+        "won": true
+      },
+      "streak": 5
+    },
+    {
+      "id": "ten-wins",
+      "title": "Ten Wins",
+      "description": "Win 10 games.",
+      "glyph": "🏆",
+      "when": {
+        "won": true
+      },
+      "count": 10
+    }
+  ],
   "license": "MIT",
   "author": "lokeshmohanty",
   "repo": "https://github.com/lokeshmohanty/web-games"

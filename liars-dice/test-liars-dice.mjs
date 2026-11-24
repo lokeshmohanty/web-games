@@ -240,5 +240,14 @@ console.log("\nwho opens each game (docs/sdk-v2.md \"Who starts\")");
 	check("nobody seated: nobody opens", nextOpener(null, []) === null);
 }
 
+console.log("\nfacts for the arcade's achievements (seatFactsOf)");
+{
+	const seats = [{ id: "a", dice: 1, out: false }, { id: "b", dice: 0, out: true }];
+	const f = R.seatFactsOf(seats, { a: 1, b: 1 }, true);
+	check("won on a call: finished, dice left, the fewest held", JSON.stringify(f.a) === '{"dice":1,"lowest":1,"finished":true}' && f.b.finished === false, JSON.stringify(f));
+	const g = R.seatFactsOf(seats, { a: 5 }, false);
+	check("won because the others left: not finished", g.a.finished === false && g.a.lowest === 5, JSON.stringify(g));
+}
+
 console.log(failures ? `\n${failures} failing\n` : "\nall passing\n");
 process.exit(failures ? 1 : 0);

@@ -168,6 +168,10 @@ function openBoard() {
 		given: puzzle.map(Boolean),
 		entries: resume ? fromText(saved.entries) : puzzle.slice(),
 		notes: resume && Array.isArray(saved.notes) ? saved.notes.slice() : Array(CELLS).fill(0),
+		// For the arcade's achievements (game.json): wrong digits put in, and
+		// pencil notes made, on this puzzle.
+		mistakes: resume ? saved.mistakes ?? 0 : 0,
+		notesUsed: resume ? saved.notesUsed ?? 0 : 0,
 		startedAt: performance.now(),
 		elapsedBefore: resume ? saved.elapsed ?? 0 : 0,
 		solvedMs: null,
@@ -189,6 +193,8 @@ function save() {
 		daily: state.daily,
 		entries: toText(board.entries),
 		notes: board.notes,
+		mistakes: board.mistakes,
+		notesUsed: board.notesUsed,
 		elapsed: Math.round(elapsed()),
 	});
 }
@@ -201,7 +207,9 @@ function report() {
 	if (done && board.solvedMs == null) board.solvedMs = elapsed();
 	// The filled grid goes with the finish: alone, it is the proof the
 	// arcade's server checks before it ranks the time (sudoku-rules.js result).
-	arcade.act({ progress: { match: state.match, right, ms: done ? Math.round(board.solvedMs) : null, ...(done ? { grid: toText(board.entries) } : {}) } });
+	arcade.act({
+		progress: { match: state.match, right, ms: done ? Math.round(board.solvedMs) : null, mistakes: board.mistakes, notes: board.notesUsed, ...(done ? { grid: toText(board.entries) } : {}) },
+	});
 }
 
 function place(digit) {
@@ -210,9 +218,11 @@ function place(digit) {
 	if (notesMode && digit) {
 		if (board.entries[selected]) return;
 		board.notes[selected] ^= 1 << digit;
+		if (board.notes[selected] & (1 << digit)) board.notesUsed++;
 	} else {
 		const was = board.entries[selected];
 		board.entries[selected] = was === digit ? 0 : digit;
+		if (board.entries[selected] && board.entries[selected] !== board.solution[selected]) board.mistakes++;
 		if (board.entries[selected]) board.notes = clearNotes(board.notes, selected, digit);
 		else board.notes[selected] = 0;
 	}

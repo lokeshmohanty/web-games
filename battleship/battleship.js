@@ -310,7 +310,9 @@ function reportOver() {
 	const ranking = over.winner
 		? [[over.winner], [loser]].map((s) => s.filter(Boolean)).filter((s) => s.length)
 		: [[a, b].filter(Boolean)];
-	if (ranking.length) arcade.result({ kind: "duel", match: over.match ?? 1, ranking, reason: over.reason ?? undefined });
+	// What game.json's achievements and records read (battleship-rules.js seatFactsOf).
+	const seatFacts = battleshipRules.seatFactsOf(boards, [a, b]);
+	if (ranking.length) arcade.result({ kind: "duel", match: over.match ?? 1, ranking, reason: over.reason ?? undefined, seatFacts });
 }
 
 const mySeat = () => seats.indexOf(self());

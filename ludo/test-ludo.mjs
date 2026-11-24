@@ -575,5 +575,16 @@ console.log("\nhandover mid-game: the heir rolls on");
 	check("a token count of four per seat", host.view({ seat: null }).tokens.every((t) => t.length === TOKENS));
 }
 
+console.log("\nfacts for the arcade's achievements: a win by others leaving is not a finish");
+{
+	const { g } = table(["pA", "pB", "pC"], { tokens: [[10, -1, -1, -1], [12, -1, -1, -1], [-1, -1, -1, -1]] });
+	g.leave({ seat: "pB" });
+	g.leave({ seat: "pC" });
+	check("won because the others left: finished is false", g.result()?.seatFacts?.pA?.finished === false, JSON.stringify(g.result()?.seatFacts));
+	const { g: h } = table(["pA", "bot_1"], { tokens: [[55, 56, 56, 56], [10, -1, -1, -1]], rolls: [1] });
+	roll(h, "pA");
+	check("every token home: finished is true", h.result()?.seatFacts?.pA?.finished === true && h.result().seatFacts.bot_1.finished === false, JSON.stringify(h.result()?.seatFacts));
+}
+
 console.log(failures ? `\n${failures} failed` : "\nall passed");
 process.exit(failures ? 1 : 0);

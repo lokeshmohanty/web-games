@@ -323,6 +323,7 @@
 					solution: null,
 					progress: {}, // id → cells right
 					times: {}, // id → ms, once finished
+					marks: {}, // id → { mistakes, notes }: what the player's phone counted, for achievements
 					attempt: null, // generate()'s attempt that dealt the puzzle (null: resumed)
 					grid: null, // the winner's filled grid (81 characters): a solo run's proof
 					winner: null,
@@ -369,6 +370,7 @@
 						attempt: made.attempt, // which of generate()'s attempts dealt it: the proof names it
 						progress: Object.fromEntries(s.players.map((id) => [id, 0])),
 						times: {},
+						marks: {},
 						grid: null,
 						winner: null,
 						startedAt: now(),
@@ -377,11 +379,13 @@
 					return;
 				}
 				if (a.progress) {
-					const { match, right, ms, grid } = a.progress;
+					const { match, right, ms, grid, mistakes, notes } = a.progress;
 					if (s.phase !== "play" || match !== s.match) return "that race is over";
 					if (!s.players.includes(by) || s.bots.includes(by)) return "not racing";
 					const total = empties(s.puzzle);
 					s.progress[by] = Math.max(0, Math.min(total, right | 0));
+					// The phone's own count (an older phone sends none): taken as said.
+					if (Number.isInteger(mistakes) && Number.isInteger(notes)) s.marks = { ...(s.marks ?? {}), [by]: { mistakes: Math.max(0, mistakes), notes: Math.max(0, notes) } };
 					if (ms != null && s.progress[by] === total) {
 						s.times[by] = Math.max(0, ms | 0);
 						s.grid = isGrid(grid) ? grid : null;
@@ -445,13 +449,20 @@
 			result() {
 				if (s.phase !== "over") return null;
 				const ranking = standings(s.players, s.progress, s.winner);
+				// What game.json's achievements and records read (the arcade's
+				// docs/platform.md): the puzzle's level and whether it was the
+				// daily one; each player's own solve, time, mistakes and notes.
+				const facts = { level: s.level, daily: !!s.daily };
+				const seatFacts = Object.fromEntries(
+					s.players.map((id) => [id, { solved: id === s.winner, ...(s.times[id] != null ? { ms: s.times[id] } : {}), ...(s.marks?.[id] ?? {}) }]),
+				);
 				if (s.players.length === 1) {
 					const ms = s.times[s.winner];
 					// The end card's heading, as v1's own said it (the derived one is "GAME OVER").
 					const proof = { start: s.start, level: s.level, daily: s.daily, attempt: s.attempt ?? null, grid: s.grid };
-					return { kind: "coop", ranking, ...(ms != null ? { title: `SOLVED IN ${clock(ms)}`, scores: { [s.winner]: Math.round(ms / 1000) }, proof } : {}) };
+					return { kind: "coop", ranking, facts, seatFacts, ...(ms != null ? { title: `SOLVED IN ${clock(ms)}`, scores: { [s.winner]: Math.round(ms / 1000) }, proof } : {}) };
 				}
-				return { kind: "ffa", ranking, scores: { ...s.progress } };
+				return { kind: "ffa", ranking, scores: { ...s.progress }, facts, seatFacts };
 			},
 
 			// Clocks differ between phones, so the heir gets durations.

@@ -244,7 +244,11 @@
 		function play(move) {
 			const geo = G();
 			const caps = victims(move.owner, geo.globalOf(s.arms[move.owner], move.to));
-			for (const [j, token] of caps) s.tokens[j][token] = -1;
+			for (const [j, token] of caps) {
+				s.tokens[j][token] = -1;
+				// Tokens of theirs sent home, by player: for achievements (game.json).
+				s.lost = { ...(s.lost ?? {}), [s.seats[j]]: (s.lost?.[s.seats[j]] ?? 0) + 1 };
+			}
 			s.tokens[move.owner][move.token] = move.to;
 			s.captures[s.turn] += caps.length;
 			if (move.to === geo.HOME && allHome(move.owner) && !s.done.includes(move.owner)) s.done.push(move.owner);
@@ -406,6 +410,7 @@
 					n: 0,
 					rolls: 0,
 					captures: ids.map(() => 0),
+					lost: {}, // id → tokens of theirs sent home
 					over: false,
 					winners: null, // teams: the winning team
 				};
@@ -531,19 +536,24 @@
 					{ label: "Rolls", value: s.rolls },
 					{ label: "Tokens sent home", value: s.captures.reduce((a, b) => a + b, 0) },
 				];
+				// What game.json's achievements and records read (the arcade's
+				// docs/platform.md): each player's captures and tokens lost.
+				// `finished`: every token home (in teams, the whole team's) — a win
+				// because the others left is not.
+				const seatFacts = Object.fromEntries(s.seats.map((id, i) => [id, { captures: s.captures[i] ?? 0, lost: s.lost?.[id] ?? 0, finished: teams() ? teamDone(teamOf(i)) : s.done.includes(i) }]));
 				if (teams()) {
 					const score = (t) => s.seats.reduce((sum, _, i) => sum + (teamOf(i) === t ? progress(i) : 0), 0);
 					const members = (t) => s.seats.map((_, i) => i).filter((i) => teamOf(i) === t);
 					const rest = teamIds().filter((t) => t !== s.winners);
 					const levels = [...new Set(rest.map(score))].sort((a, b) => b - a);
 					const ranking = [...(s.winners != null ? [ids(members(s.winners))] : []), ...levels.map((v) => ids(rest.filter((t) => score(t) === v).flatMap(members)))];
-					return { kind: "teams", ranking, details };
+					return { kind: "teams", ranking, details, seatFacts };
 				}
 				const rest = s.seats.map((_, i) => i).filter((i) => !s.done.includes(i) && !s.out[i]);
 				const levels = [...new Set(rest.map(progress))].sort((a, b) => b - a);
 				const gone = s.seats.map((_, i) => i).filter((i) => s.out[i] && !s.done.includes(i));
 				const ranking = [...s.done.map((i) => [s.seats[i]]), ...levels.map((v) => ids(rest.filter((i) => progress(i) === v))), ...(gone.length ? [ids(gone)] : [])];
-				return { kind: "ffa", ranking, details };
+				return { kind: "ffa", ranking, details, seatFacts };
 			},
 
 			/** The host chose SKIP TURN for someone away: their turn passes. */

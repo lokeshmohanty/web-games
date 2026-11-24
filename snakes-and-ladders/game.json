@@ -24,6 +24,102 @@
     "party"
   ],
   "preview": "preview.gif",
+  "records": [
+    {
+      "id": "fewest",
+      "title": "Fewest rolls to win",
+      "of": "facts.rolls",
+      "best": "min",
+      "when": {
+        "won": true,
+        "facts.home": true
+      }
+    },
+    {
+      "id": "ladders",
+      "title": "Most ladders in a game",
+      "of": "facts.ladders",
+      "best": "max"
+    }
+  ],
+  "achievements": [
+    {
+      "id": "first-win",
+      "title": "First Home",
+      "description": "Reach 100 first.",
+      "glyph": "🏁",
+      "when": {
+        "won": true
+      }
+    },
+    {
+      "id": "beat-5",
+      "title": "Full Board",
+      "description": "Win against 5 bots.",
+      "glyph": "👑",
+      "when": {
+        "won": true,
+        "bots": {
+          ">=": 5
+        }
+      }
+    },
+    {
+      "id": "no-snakes",
+      "title": "Snake Charmer",
+      "description": "Win without sliding down a snake.",
+      "glyph": "🐍",
+      "when": {
+        "won": true,
+        "facts.home": true,
+        "facts.snakes": 0
+      }
+    },
+    {
+      "id": "climber",
+      "title": "Climber",
+      "description": "Climb 4 ladders in one game.",
+      "glyph": "🪜",
+      "when": {
+        "facts.ladders": {
+          ">=": 4
+        }
+      }
+    },
+    {
+      "id": "quick",
+      "title": "Quick Trip",
+      "description": "Win in 15 rolls or fewer.",
+      "glyph": "⚡",
+      "when": {
+        "won": true,
+        "facts.home": true,
+        "facts.rolls": {
+          "<=": 15
+        }
+      }
+    },
+    {
+      "id": "hat-trick",
+      "title": "Hat Trick",
+      "description": "Win 3 games in a row.",
+      "glyph": "🎩",
+      "when": {
+        "won": true
+      },
+      "streak": 3
+    },
+    {
+      "id": "ten-wins",
+      "title": "Ten Wins",
+      "description": "Win 10 games.",
+      "glyph": "🏆",
+      "when": {
+        "won": true
+      },
+      "count": 10
+    }
+  ],
   "license": "MIT",
   "author": "lokeshmohanty",
   "repo": "https://github.com/lokeshmohanty/web-games"
