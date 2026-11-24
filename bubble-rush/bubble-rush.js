@@ -459,7 +459,8 @@ function renderHud() {
 	if (hudMult.textContent !== multText) hudMult.textContent = multText;
 
 	// The scoreboard changes only when someone scores; rebuilt only then.
-	const key = JSON.stringify([view.mode, view.scores, pendingPts(), view.seats, mine, arcade.theme?.name, arcade.party?.members.length]);
+	// The seats' colours too: a chip recolours right after a pick.
+	const key = JSON.stringify([view.mode, view.scores, pendingPts(), view.seats, mine, arcade.theme?.name, arcade.party?.members.length, arcade.seatColors?.(seats().map(([id]) => id)) ?? null]);
 	if (key === lastBoard) return;
 	lastBoard = key;
 	const chip = (text, name, isMe) => {
@@ -479,7 +480,8 @@ function renderHud() {
 	} else {
 		const ids = seats().map(([id]) => id);
 		const order2 = [...ids].sort((x, y) => scoreOf(y) - scoreOf(x));
-		board.replaceChildren(...order2.map((id) => chip(`${nameOf(id)} ${scoreOf(id)}`, ids.indexOf(id), id === mine)));
+		// Each in its player's own colour (colourOf: their pick).
+		board.replaceChildren(...order2.map((id) => chip(`${nameOf(id)} ${scoreOf(id)}`, colourOf(id), id === mine)));
 	}
 }
 
