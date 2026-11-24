@@ -19,6 +19,92 @@
     "party"
   ],
   "preview": "preview.gif",
+  "records": [
+    {
+      "id": "dice",
+      "title": "Most dice left in a win",
+      "of": "facts.dice",
+      "best": "max",
+      "when": {
+        "won": true
+      }
+    }
+  ],
+  "achievements": [
+    {
+      "id": "first-win",
+      "title": "First Win",
+      "description": "Be the last cup standing.",
+      "glyph": "🏁",
+      "when": {
+        "won": true
+      }
+    },
+    {
+      "id": "beat-3",
+      "title": "Beat 3 Bots",
+      "description": "Win against 3 or more bots.",
+      "glyph": "🤖",
+      "when": {
+        "won": true,
+        "bots": {
+          ">=": 3
+        }
+      }
+    },
+    {
+      "id": "full-table",
+      "title": "Full Table",
+      "description": "Win against 5 bots.",
+      "glyph": "👑",
+      "when": {
+        "won": true,
+        "bots": {
+          ">=": 5
+        }
+      }
+    },
+    {
+      "id": "comeback",
+      "title": "Comeback",
+      "description": "Win after being down to your last die.",
+      "glyph": "🔄",
+      "when": {
+        "won": true,
+        "facts.lowest": 1
+      }
+    },
+    {
+      "id": "untouched",
+      "title": "Untouched",
+      "description": "Win without losing a die.",
+      "glyph": "🛡️",
+      "when": {
+        "won": true,
+        "facts.lowest": 5
+      }
+    },
+    {
+      "id": "hat-trick",
+      "title": "Hat Trick",
+      "description": "Win 3 games in a row.",
+      "glyph": "🎩",
+      "when": {
+        "won": true
+      },
+      "streak": 3
+    },
+    {
+      "id": "ten-wins",
+      "title": "Ten Wins",
+      "description": "Win 10 games.",
+      "glyph": "🏆",
+      "when": {
+        "won": true
+      },
+      "count": 10
+    }
+  ],
   "license": "MIT",
   "author": "lokeshmohanty",
   "repo": "https://github.com/lokeshmohanty/web-games"

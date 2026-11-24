@@ -23,6 +23,106 @@
     "quick"
   ],
   "preview": "preview.gif",
+  "records": [
+    {
+      "id": "solo",
+      "title": "Longest ride alone",
+      "of": "score",
+      "best": "max",
+      "when": {
+        "alone": true
+      },
+      "unit": "s"
+    }
+  ],
+  "achievements": [
+    {
+      "id": "first-win",
+      "title": "First Win",
+      "description": "Be the last rider on the grid.",
+      "glyph": "🏁",
+      "when": {
+        "won": true,
+        "seats": {
+          ">=": 2
+        }
+      }
+    },
+    {
+      "id": "beat-3",
+      "title": "Beat 3 Bots",
+      "description": "Win against 3 or more bots.",
+      "glyph": "🤖",
+      "when": {
+        "won": true,
+        "bots": {
+          ">=": 3
+        }
+      }
+    },
+    {
+      "id": "full-grid",
+      "title": "Full Grid",
+      "description": "Win against 7 bots.",
+      "glyph": "👑",
+      "when": {
+        "won": true,
+        "bots": {
+          ">=": 7
+        }
+      }
+    },
+    {
+      "id": "solo-30",
+      "title": "Half a Minute",
+      "description": "Ride alone for 30 seconds.",
+      "glyph": "⏱️",
+      "when": {
+        "alone": true,
+        "score": {
+          ">=": 30
+        }
+      }
+    },
+    {
+      "id": "solo-60",
+      "title": "Endurance",
+      "description": "Ride alone for a minute.",
+      "glyph": "🛡️",
+      "when": {
+        "alone": true,
+        "score": {
+          ">=": 60
+        }
+      }
+    },
+    {
+      "id": "hat-trick",
+      "title": "Hat Trick",
+      "description": "Win 3 races in a row against others.",
+      "glyph": "🎩",
+      "when": {
+        "won": true,
+        "seats": {
+          ">=": 2
+        }
+      },
+      "streak": 3
+    },
+    {
+      "id": "ten-wins",
+      "title": "Ten Wins",
+      "description": "Win 10 races against others.",
+      "glyph": "🏆",
+      "when": {
+        "won": true,
+        "seats": {
+          ">=": 2
+        }
+      },
+      "count": 10
+    }
+  ],
   "license": "MIT",
   "author": "lokeshmohanty",
   "repo": "https://github.com/lokeshmohanty/web-games"

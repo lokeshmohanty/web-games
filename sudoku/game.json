@@ -21,6 +21,159 @@
     "daily"
   ],
   "preview": "preview.gif",
+  "records": [
+    {
+      "id": "time",
+      "title": "Best time",
+      "of": "facts.ms",
+      "best": "min",
+      "by": "facts.level",
+      "when": {
+        "facts.solved": true
+      },
+      "format": "time"
+    },
+    {
+      "id": "solved",
+      "title": "Puzzles solved",
+      "best": "count",
+      "when": {
+        "facts.solved": true
+      }
+    },
+    {
+      "id": "daily",
+      "title": "Daily streak",
+      "best": "days",
+      "when": {
+        "facts.solved": true,
+        "facts.daily": true
+      }
+    },
+    {
+      "id": "mistakes",
+      "title": "Fewest mistakes",
+      "of": "facts.mistakes",
+      "best": "min",
+      "by": "facts.level",
+      "when": {
+        "facts.solved": true
+      }
+    }
+  ],
+  "achievements": [
+    {
+      "id": "first-solve",
+      "title": "First Solve",
+      "description": "Solve a puzzle.",
+      "glyph": "⭐",
+      "when": {
+        "facts.solved": true
+      }
+    },
+    {
+      "id": "clean-sheet",
+      "title": "Clean Sheet",
+      "description": "Solve a puzzle without one wrong digit.",
+      "glyph": "✨",
+      "when": {
+        "facts.solved": true,
+        "facts.mistakes": 0
+      }
+    },
+    {
+      "id": "no-notes",
+      "title": "No Notes",
+      "description": "Solve a puzzle without pencil notes.",
+      "glyph": "🧠",
+      "when": {
+        "facts.solved": true,
+        "facts.notes": 0
+      }
+    },
+    {
+      "id": "speed-easy",
+      "title": "Speedrun: Easy",
+      "description": "Solve an Easy puzzle in under 3 minutes.",
+      "glyph": "⚡",
+      "when": {
+        "facts.solved": true,
+        "facts.level": "easy",
+        "facts.ms": {
+          "<": 180000
+        }
+      }
+    },
+    {
+      "id": "speed-hard",
+      "title": "Speedrun: Hard",
+      "description": "Solve a Hard puzzle in under 10 minutes.",
+      "glyph": "🚀",
+      "when": {
+        "facts.solved": true,
+        "facts.level": "hard",
+        "facts.ms": {
+          "<": 600000
+        }
+      }
+    },
+    {
+      "id": "expert",
+      "title": "Expert",
+      "description": "Solve an Expert puzzle.",
+      "glyph": "🎓",
+      "when": {
+        "facts.solved": true,
+        "facts.level": "expert"
+      }
+    },
+    {
+      "id": "every-level",
+      "title": "Every Level",
+      "description": "Solve a puzzle at every level.",
+      "glyph": "🪜",
+      "when": {
+        "facts.solved": true
+      },
+      "distinct": {
+        "of": "facts.level",
+        "count": 4
+      }
+    },
+    {
+      "id": "daily-7",
+      "title": "7-Day Streak",
+      "description": "Solve today's puzzle 7 days in a row.",
+      "glyph": "📅",
+      "when": {
+        "facts.solved": true,
+        "facts.daily": true
+      },
+      "days": 7
+    },
+    {
+      "id": "race-win",
+      "title": "Race Winner",
+      "description": "Win a race against a bot.",
+      "glyph": "🏁",
+      "when": {
+        "won": true,
+        "bots": {
+          ">=": 1
+        }
+      }
+    },
+    {
+      "id": "hundred",
+      "title": "100 Solved",
+      "description": "Solve 100 puzzles.",
+      "glyph": "💯",
+      "when": {
+        "facts.solved": true
+      },
+      "count": 100
+    }
+  ],
   "license": "MIT",
   "author": "lokeshmohanty",
   "repo": "https://github.com/lokeshmohanty/web-games"
