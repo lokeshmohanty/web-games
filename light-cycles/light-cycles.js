@@ -18,9 +18,19 @@
 // you right — because that is one thumb and no aiming. Keyboard arrows are
 // absolute, because on a keyboard that is what people press.
 
-const { COLS, ROWS, ORDER, idx } = lightCycleRules;
+const { COLS, ROWS, ORDER, WALL, idx } = lightCycleRules;
 
-arcade.managed(lightCycleRules.game());
+// The options last played (`{ obstacles }`), kept in the game's storage on
+// this phone: one person's round, and PLAY AGAIN, start on them without the
+// setup (light-cycles-rules.js `game()`).
+let lastOpts = null;
+arcade.init.then((m) => {
+	const o = m?.storage?.opts;
+	if (o && typeof o === "object") lastOpts = o;
+});
+// Who sets the round up: the party's host (anyone, where there is no party).
+const rules = lightCycleRules.game({ isHost: (id) => !arcade.party?.host || id === arcade.party.host, last: () => lastOpts });
+arcade.managed(rules);
 
 // ------------------------------------------------------------------ chrome
 
@@ -47,6 +57,20 @@ style.textContent = `
 		font-size: 0.75rem; letter-spacing: 0.06em; }
 	.lc-scores span { white-space: nowrap; }
 	.lc-key { width: 12px; height: 12px; margin-right: 4px; vertical-align: -1px; }
+	/* The setup (friends' first round) over the arena, and the end's "Next game" line. */
+	.lc-setup { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+		gap: 10px; padding: 12px; box-sizing: border-box; text-align: center; border-radius: 8px;
+		background: color-mix(in oklch, var(--bg) 78%, transparent); overflow-y: auto; }
+	.lc-setup[hidden], .lc-next[hidden] { display: none; }
+	.lc-setup h2 { margin: 0; font-family: var(--font-display); font-size: 1.4rem; letter-spacing: 0.06em; color: var(--accent); }
+	.lc-setup p { margin: 0; max-width: 24em; color: var(--ink-2); line-height: 1.35; font-size: 0.85rem; }
+	.lc-choice { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+	.lc-setup .neon-btn, .lc-next .neon-btn { min-height: 44px; min-width: 44px; padding: 8px 12px; font-size: 0.85rem; }
+	.lc-choice .neon-btn { border: 2px solid var(--accent); }
+	.lc-choice .neon-btn[aria-pressed="false"] { background: transparent; color: var(--accent); }
+	.lc-next { display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--ink-2); text-align: center; }
+	.lc-next-line { display: flex; align-items: center; justify-content: center; gap: 4px 10px; flex-wrap: wrap; }
+	.lc-next b { color: var(--ink); font-weight: 600; }
 `;
 document.head.append(style);
 
@@ -69,10 +93,14 @@ const zones = el("div", "lc-zones");
 const leftZone = el("div", "lc-zone", "↰");
 const rightZone = el("div", "lc-zone", "↱");
 zones.append(leftZone, rightZone);
-arena.append(trailCanvas, headCanvas, zones);
+const setup = el("div", "lc-setup");
+setup.hidden = true;
+arena.append(trailCanvas, headCanvas, zones, setup);
 const scores = el("div", "lc-scores");
+const nextEl = el("div", "lc-next");
+nextEl.hidden = true;
 fill.append(arena, scores);
-stage.append(hud, fill);
+stage.append(hud, nextEl, fill);
 document.body.append(stage);
 
 const trail2d = trailCanvas.getContext("2d");
@@ -186,9 +214,27 @@ function repaintTrails() {
 	for (let r = 0; r < ROWS; r++) {
 		for (let c = 0; c < COLS; c++) {
 			const owner = grid[idx(c, r)];
-			if (owner) paintCell(c, r, owner - 1);
+			if (owner === WALL) paintBlock(c, r);
+			else if (owner) paintCell(c, r, owner - 1);
 		}
 	}
+}
+
+/** An obstacle at (c, r): the ink, faint, crossed — nobody's colour and no rider's pattern. */
+function paintBlock(c, r) {
+	const ink = arcade.theme?.tokens.ink ?? "gray"; // theme-exempt: before the theme arrives
+	trail2d.fillStyle = ink;
+	trail2d.globalAlpha = 0.35;
+	trail2d.fillRect(c * cellW, r * cellH, cellW, cellH);
+	trail2d.globalAlpha = 1;
+	trail2d.strokeStyle = ink;
+	trail2d.lineWidth = 1;
+	trail2d.beginPath();
+	trail2d.moveTo(c * cellW + 1, r * cellH + 1);
+	trail2d.lineTo((c + 1) * cellW - 1, (r + 1) * cellH - 1);
+	trail2d.moveTo((c + 1) * cellW - 1, r * cellH + 1);
+	trail2d.lineTo(c * cellW + 1, (r + 1) * cellH - 1);
+	trail2d.stroke();
 }
 
 /** Rider i's wall at (c, r): its colour, faint, and its pattern on top. */
@@ -243,6 +289,7 @@ function renderHud() {
 	const mine = me();
 	const parts = [];
 	if (!view) parts.push({ key: "s", text: "Getting ready…", className: "g-muted" });
+	else if (view.phase === "setup") parts.push({ key: "s", text: "Setting up", className: "g-muted" });
 	else if (view.countdown > 0) {
 		parts.push({ key: "s", text: view.countdown === 1 ? "GO" : `Starting in ${view.countdown - 1}…` });
 	} else if (view.racing) {
@@ -260,6 +307,112 @@ function render() {
 	drawHeads();
 	renderScores();
 	renderHud();
+	renderSetup();
+	renderNext();
+}
+
+// ---------------------------------------------------------------- setup
+//
+// Friends' first round only (Lokesh, 2026-11-23, as Ludo): the host picks
+// an open arena or OBSTACLES — a few blocks of wall, clear of every spawn's
+// lane — and STARTs; everyone else sees what is picked. The arena behind
+// shows the blocks as they are picked.
+
+const optsText = (o) => (o.obstacles ? "obstacles" : "open arena");
+let lastSetup = "";
+function renderSetup() {
+	const on = view?.phase === "setup";
+	setup.hidden = !on;
+	if (!on) return void (lastSetup = "");
+	const host = arcade.isHost();
+	const alone = view.riders.length < 2;
+	const key = JSON.stringify([view.obstacles, host, arcade.party?.host, alone]);
+	if (key === lastSetup) return;
+	lastSetup = key;
+	const parts = [el("h2", null, "LIGHT CYCLES")];
+	if (host) {
+		parts.push(el("p", null, "Ride, leave a wall, do not touch one. Obstacles put a few blocks of wall on the arena."));
+		parts.push(optionButtons(view.obstacles, (obstacles) => arcade.act({ obstacles })));
+		const start = el("button", "neon-btn neon-btn--accent lc-start", "START");
+		start.type = "button";
+		start.disabled = alone;
+		start.onclick = () => arcade.act({ start: true });
+		if (alone) parts.push(el("p", null, "Waiting for players: add a bot or invite a friend."));
+		parts.push(start);
+	} else {
+		const hostName = arcade.party?.members?.find((p) => p.id === arcade.party?.host)?.name || "The host";
+		parts.push(el("p", null, `${hostName} is setting up: ${optsText(view)}.`));
+	}
+	setup.replaceChildren(...parts);
+}
+/** OPEN ARENA / OBSTACLES, the one pressed showing which. */
+function optionButtons(obstacles, pick) {
+	const group = el("div", "lc-choice");
+	group.setAttribute("role", "group");
+	group.setAttribute("aria-label", "Arena");
+	for (const [value, label] of [[false, "OPEN ARENA"], [true, "OBSTACLES"]]) {
+		const btn = el("button", "neon-btn", label);
+		btn.type = "button";
+		btn.dataset.obstacles = String(value);
+		btn.setAttribute("aria-pressed", String(obstacles === value));
+		btn.onclick = () => pick(value);
+		group.append(btn);
+	}
+	return group;
+}
+
+// ------------------------------------------------------------ next game
+//
+// At the end the host's phone says what PLAY AGAIN starts — "Next game:
+// open arena · CHANGE" — above the shell's card (SEE THE BOARD tucks it to
+// the bottom). The pick goes to the host's own rules, which are the live ones
+// (the platform takes no moves after the end), and is kept on this phone.
+
+let choosingNext = false;
+function nextGame() {
+	if (!view?.decided || view.phase !== "play" || !arcade.isHost()) return null;
+	try {
+		return rules.nextGame();
+	} catch {
+		return null;
+	}
+}
+function keepOpts(o) {
+	if (JSON.stringify(o) === JSON.stringify(lastOpts)) return;
+	lastOpts = { ...o };
+	arcade.send("store.set", { key: "opts", value: lastOpts });
+}
+let lastNext = "";
+function renderNext() {
+	const n = nextGame();
+	if (!n) choosingNext = false;
+	const key = JSON.stringify([n, choosingNext]);
+	if (key === lastNext) return;
+	lastNext = key;
+	nextEl.hidden = !n;
+	// The line came, went or opened: the arena takes what is left.
+	queueMicrotask(layout);
+	if (!n) return void nextEl.replaceChildren();
+	const change = el("button", "neon-btn lc-next-change", choosingNext ? "DONE" : "CHANGE");
+	change.type = "button";
+	change.setAttribute("aria-label", choosingNext ? "Done choosing the next game" : "Change the next game's arena");
+	change.onclick = () => {
+		choosingNext = !choosingNext;
+		render();
+	};
+	const what = el("span");
+	what.append(document.createTextNode("Next game: "), el("b", null, optsText(n)));
+	const line = el("div", "lc-next-line");
+	line.append(what, change);
+	if (!choosingNext) return void nextEl.replaceChildren(line);
+	nextEl.replaceChildren(
+		line,
+		optionButtons(n.obstacles, (obstacles) => {
+			if (rules.setNext({ obstacles }) !== undefined) return;
+			keepOpts(rules.nextGame());
+			render();
+		}),
+	);
 }
 
 /**
@@ -278,6 +431,8 @@ function onView(next) {
 	const cols = arcade.seatColors?.(next.riders.map((r) => r.id)) ?? [];
 	const recoloured = cols.join() !== seatCols.join();
 	seatCols = cols;
+	// The options played, kept on the host's phone for its next one-person round.
+	if (next.phase === "play" && arcade.isHost()) keepOpts({ obstacles: !!next.obstacles });
 	if (next.grid) {
 		grid = Uint8Array.from(next.grid, Number);
 		repaintTrails();
@@ -354,6 +509,9 @@ arcade.debug = () => ({
 	riders: riders().map((r) => ({ ...r })),
 	colors: riders().map((_, i) => seatCols[i] ?? i % 8),
 	patterns: riders().map((_, i) => patternOf(i)),
-	walls: grid.reduce((n, v) => n + (v ? 1 : 0), 0),
+	walls: grid.reduce((n, v) => n + (v && v !== WALL ? 1 : 0), 0),
+	blocks: grid.reduce((n, v) => n + (v === WALL ? 1 : 0), 0),
+	phase: view?.phase ?? null,
+	obstacles: !!view?.obstacles,
 	mine: me()?.id ?? null,
 });
