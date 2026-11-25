@@ -3,7 +3,7 @@
 Ride around the arena leaving a wall behind you, and never hit a wall. The last rider still moving wins the round. Up to eight riders; bots can fill the empty seats.
 
 ## Setting up
-- The setup shows only the first time: for a party's first round with friends. The host picks an **open arena** or **obstacles** — a few blocks of wall on the arena from the start, never in a rider's path off the line — and taps **START**.
+- The setup shows only the first time: for a party's first round with friends. The host picks an **open arena** or **obstacles** — a few blocks of wall on the arena from the start, never in a rider's path off the line — and taps **START**. START waits until at least two riders are seated.
 - **PLAY AGAIN** goes straight on with the same arena, and so does a round started alone or with bots (on the arena you last played; an open arena the first time).
 - At the end the host sees **Next game: open arena · CHANGE** (tap SEE THE BOARD to reach it): CHANGE picks the arena for the next round.
 
