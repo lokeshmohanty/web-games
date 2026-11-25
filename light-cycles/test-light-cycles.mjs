@@ -534,7 +534,15 @@ console.log("\nobstacles");
 	heir.restore({ snapshot: JSON.parse(JSON.stringify(rules.snapshot())) });
 	v = heir.view({ seat: null });
 	check("the heir keeps the setup and its pick", v.phase === "setup" && v.obstacles === true && walls(v) >= 12, JSON.stringify({ phase: v.phase, o: v.obstacles }));
+	check("…the same blocks and spawns: the heir's arena is the one being set up", heir.view({ seat: null }).grid === rules.view({ seat: null }).grid && JSON.stringify(heir.view({ seat: null }).riders) === JSON.stringify(rules.view({ seat: null }).riders));
 	check("someone leaving during the setup leaves the table", heir.leave({ seat: "pB" }) === true && heir.view({ seat: null }).riders.length === 2);
+	// Review, 2026-11-25: the only other rider leaving during the setup must
+	// not leave a one-rider round. START waits for a second rider.
+	const pair = game({ isHost: (id) => id === "pA" });
+	pair.init({ seats: [{ id: "pA", bot: false }, { id: "pB", bot: false }], opts: {}, seed: 8, match: 0 });
+	check("…a two-person setup", pair.view({ seat: null }).phase === "setup");
+	pair.leave({ seat: "pB" });
+	check("…the guest leaves: START waits for players, the setup stays up", pair.apply({ action: { start: true }, by: "pA" }) === "waiting for players" && pair.view({ seat: null }).phase === "setup" && pair.view({ seat: null }).riders.length === 1);
 }
 
 console.log(failures ? `\n${failures} failing\n` : "\nall passing\n");

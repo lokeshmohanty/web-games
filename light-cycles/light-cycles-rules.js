@@ -463,6 +463,9 @@
 					return;
 				}
 				if (a.start === true) {
+					// Two riders at least: the only other rider leaving during the
+					// setup must not leave a one-rider round (review, 2026-11-25).
+					if (s.riders.length < 2) return "waiting for players";
 					s.phase = "play";
 					return;
 				}
@@ -601,7 +604,9 @@
 				s.opts ??= cleanOpts(null);
 				s.blocks ??= [];
 				s.rng ??= 0;
-				if (!s.decided) {
+				// A round under way starts again; a setup stays as it was, the
+				// same blocks and spawns the host was showing.
+				if (!s.decided && s.phase !== "setup") {
 					newRound(s.riders.map((r) => ({ id: r.id, bot: r.bot })));
 				}
 			},

@@ -28,7 +28,8 @@ arcade.init.then((m) => {
 	const o = m?.storage?.opts;
 	if (o && typeof o === "object") lastOpts = o;
 });
-const rules = lightCycleRules.game({ isHost: (id) => id === arcade.party?.host, last: () => lastOpts });
+// Who sets the round up: the party's host (anyone, where there is no party).
+const rules = lightCycleRules.game({ isHost: (id) => !arcade.party?.host || id === arcade.party.host, last: () => lastOpts });
 arcade.managed(rules);
 
 // ------------------------------------------------------------------ chrome
@@ -324,7 +325,8 @@ function renderSetup() {
 	setup.hidden = !on;
 	if (!on) return void (lastSetup = "");
 	const host = arcade.isHost();
-	const key = JSON.stringify([view.obstacles, host, arcade.party?.host]);
+	const alone = view.riders.length < 2;
+	const key = JSON.stringify([view.obstacles, host, arcade.party?.host, alone]);
 	if (key === lastSetup) return;
 	lastSetup = key;
 	const parts = [el("h2", null, "LIGHT CYCLES")];
@@ -333,7 +335,9 @@ function renderSetup() {
 		parts.push(optionButtons(view.obstacles, (obstacles) => arcade.act({ obstacles })));
 		const start = el("button", "neon-btn neon-btn--accent lc-start", "START");
 		start.type = "button";
+		start.disabled = alone;
 		start.onclick = () => arcade.act({ start: true });
+		if (alone) parts.push(el("p", null, "Waiting for players: add a bot or invite a friend."));
 		parts.push(start);
 	} else {
 		const hostName = arcade.party?.members?.find((p) => p.id === arcade.party?.host)?.name || "The host";
